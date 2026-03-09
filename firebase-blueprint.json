@@ -1,0 +1,51 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "User's display name" },
+        "email": { "type": "string", "description": "User's email" },
+        "currency": { "type": "string", "description": "Preferred currency (e.g., UZS, USD)" },
+        "language": { "type": "string", "description": "Preferred language (e.g., uz, en)" },
+        "monthlyBudget": { "type": "number", "description": "Monthly spending limit" },
+        "birthday": { "type": "string", "format": "date", "description": "User's birthday" },
+        "theme": { "type": "string", "description": "UI theme choice" },
+        "photoURL": { "type": "string", "description": "Base64 encoded profile picture" },
+        "level": { "type": "number", "description": "RPG Level" },
+        "xp": { "type": "number", "description": "RPG Experience Points" },
+        "avatarColor": { "type": "string", "description": "Avatar background color class" },
+        "lastCheckIn": { "type": "string", "format": "date-time", "description": "Last daily reward claim" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Income or expense record",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Owner UID" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "amount", "category", "date"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial transaction records"
+    }
+  }
+}
