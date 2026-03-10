@@ -19,6 +19,8 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
+  increment,
   limit,
   startAfter,
   getDocs
@@ -48,13 +50,18 @@ import {
   Download,
   Mail,
   Lock,
+  Trash2,
   Camera,
   Coins,
   Activity,
   Settings,
   Trophy,
   Target,
-  UserCheck
+  UserCheck,
+  ChevronDown,
+  ShieldCheck,
+  ShoppingBag,
+  Package
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -66,11 +73,17 @@ import {
   ResponsiveContainer, 
   Cell,
   PieChart,
-  Pie
+  Pie,
+  LineChart,
+  Line,
+  AreaChart,
+  Area
 } from 'recharts';
 import { format, startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, isSameDay } from 'date-fns';
+import { uz } from 'date-fns/locale';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
+import * as XLSX from 'xlsx';
 
 import { auth, db, OperationType, handleFirestoreError } from './firebase';
 import { cn, formatCurrency } from './lib/utils';
@@ -88,6 +101,9 @@ interface UserProfile {
   photoURL?: string;
   level?: number;
   xp?: number;
+  savingsGoal?: string;
+  savingsGoalAmount?: number;
+  wishlist?: { id: string; name: string; price: number; icon: string }[];
   avatarColor?: string;
   lastCheckIn?: any;
   achievements?: string[];
@@ -171,6 +187,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'stats' | 'profile' | 'notifications'>('dashboard');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
@@ -292,6 +309,31 @@ export default function App() {
     return unsubscribe;
   }, [user]);
 
+  // Level Up Logic
+  useEffect(() => {
+    if (!profile || !user) return;
+    const level = profile.level || 1;
+    const xp = profile.xp || 0;
+    const nextLevelXp = level * 1000;
+    
+    if (xp >= nextLevelXp) {
+      updateDoc(doc(db, 'users', user.uid), {
+        level: level + 1,
+        xp: xp - nextLevelXp
+      });
+      
+      // Notify user
+      const newNotif: Notification = {
+        id: 'levelup-' + new Date().getTime(),
+        title: 'LEVEL UP! 🎊',
+        message: `Tabriklaymiz! Siz ${level + 1}-darajaga ko'tarildingiz! Sarguzashtingiz davom etmoqda.`,
+        date: new Date(),
+        read: false
+      };
+      setNotifications(prev => [newNotif, ...prev]);
+    }
+  }, [profile, user]);
+
   const loadMoreTransactions = async () => {
     if (!user || !lastDoc || loadingMore) return;
     setLoadingMore(true);
@@ -392,6 +434,12 @@ export default function App() {
               setFilterYear={setFilterYear}
               filterMonth={filterMonth}
               setFilterMonth={setFilterMonth}
+              onEditTransaction={setEditingTransaction}
+              onUpdateWishlist={(wishlist) => {
+                if (user) {
+                  updateDoc(doc(db, 'users', user.uid), { wishlist });
+                }
+              }}
             />
           )}
           {activeTab === 'stats' && <Statistics transactions={transactions} profile={profile} />}
@@ -401,7 +449,14 @@ export default function App() {
               setNotifications={setNotifications} 
             />
           )}
-          {activeTab === 'profile' && <ProfilePage profile={profile} user={user} transactions={transactions} />}
+          {activeTab === 'profile' && (
+            <ProfilePage 
+              profile={profile} 
+              user={user} 
+              transactions={transactions} 
+              setNotifications={setNotifications}
+            />
+          )}
         </main>
 
           {/* Navigation */}
@@ -445,11 +500,15 @@ export default function App() {
           />
         </nav>
 
-          {/* Add Transaction Modal */}
-          {showAddModal && (
+          {/* Add/Edit Transaction Modal */}
+          {(showAddModal || editingTransaction) && (
             <TransactionModal 
-              onClose={() => setShowAddModal(false)} 
-              uid={user.uid} 
+              onClose={() => {
+                setShowAddModal(false);
+                setEditingTransaction(null);
+              }} 
+              uid={user.uid}
+              editData={editingTransaction}
             />
           )}
         </div>
@@ -621,7 +680,9 @@ function Dashboard({
   filterYear,
   setFilterYear,
   filterMonth,
-  setFilterMonth
+  setFilterMonth,
+  onEditTransaction,
+  onUpdateWishlist
 }: { 
   profile: UserProfile | null, 
   transactions: Transaction[],
@@ -633,8 +694,15 @@ function Dashboard({
   filterYear: string,
   setFilterYear: (y: string) => void,
   filterMonth: string,
-  setFilterMonth: (m: string) => void
+  setFilterMonth: (m: string) => void,
+  onEditTransaction: (tx: Transaction) => void,
+  onUpdateWishlist: (wishlist: any[]) => void
 }) {
+  const [showShopModal, setShowShopModal] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemPrice, setNewItemPrice] = useState('');
+  const [newItemIcon, setNewItemIcon] = useState('📦');
+
   const today = new Date();
   const todayTxs = transactions.filter(tx => {
     const txDate = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
@@ -658,6 +726,134 @@ function Dashboard({
     .reduce((sum, tx) => sum + tx.amount, 0);
 
   const budgetExceeded = profile?.monthlyBudget && monthExpense > profile.monthlyBudget;
+  
+  // Budget HP Bar
+  const budgetHP = profile?.monthlyBudget ? Math.max(0, Math.round(((profile.monthlyBudget - monthExpense) / profile.monthlyBudget) * 100)) : 100;
+  
+  // Savings Goal Progress
+  const savingsGoalProgress = profile?.savingsGoalAmount ? Math.min(100, Math.max(0, Math.round((balance / profile.savingsGoalAmount) * 100))) : 0;
+
+  // Financial Forecast Logic
+  const getForecast = () => {
+    const now = new Date();
+    const daysInMonth = endOfMonth(now).getDate();
+    const daysPassed = now.getDate();
+    const daysRemaining = daysInMonth - daysPassed;
+    
+    const dailyAvg = monthExpense / daysPassed;
+    const projectedExpense = dailyAvg * daysInMonth;
+    
+    const monthlyIncome = transactions
+      .filter(tx => {
+        const d = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear && tx.type === 'income';
+      })
+      .reduce((sum, tx) => sum + tx.amount, 0);
+      
+    const projectedSavings = monthlyIncome - projectedExpense;
+    const safetyScore = profile?.monthlyBudget 
+      ? Math.max(0, Math.min(100, Math.round(((profile.monthlyBudget - projectedExpense) / profile.monthlyBudget) * 100 + 50)))
+      : 50;
+
+    return { projectedExpense, projectedSavings, safetyScore, daysRemaining };
+  };
+  const forecast = getForecast();
+
+  // Daily Savings for Wishlist
+  const calculateDailySavings = () => {
+    const now = new Date();
+    const daysPassed = now.getDate();
+    const monthlyIncome = transactions
+      .filter(tx => {
+        const d = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear && tx.type === 'income';
+      })
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    
+    const monthlyExpense = transactions
+      .filter(tx => {
+        const d = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear && tx.type === 'expense';
+      })
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    const dailySavings = Math.max(0, (monthlyIncome - monthlyExpense) / daysPassed);
+    return dailySavings || 1; // Avoid division by zero
+  };
+  const dailySavings = calculateDailySavings();
+
+  // Streak Logic
+  const calculateStreak = () => {
+    if (transactions.length === 0) return 0;
+    let streakCount = 0;
+    let checkDate = new Date();
+    
+    const sortedTxs = [...transactions].sort((a, b) => {
+      const da = a.date instanceof Timestamp ? a.date.toDate() : new Date(a.date);
+      const db = b.date instanceof Timestamp ? b.date.toDate() : new Date(b.date);
+      return db.getTime() - da.getTime();
+    });
+
+    const hasToday = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+    if (!hasToday) {
+      checkDate = subDays(checkDate, 1);
+      const hasYesterday = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+      if (!hasYesterday) return 0;
+    }
+
+    while (true) {
+      const hasTx = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+      if (hasTx) {
+        streakCount++;
+        checkDate = subDays(checkDate, 1);
+      } else {
+        break;
+      }
+    }
+    return streakCount;
+  };
+  const streak = calculateStreak();
+
+  // Daily Quests Logic
+  const quests = [
+    { 
+      id: 1, 
+      title: 'Birinchi qadam', 
+      desc: 'Bugun kamida bitta tranzaksiya yozing', 
+      done: todayTxs.length > 0,
+      icon: <Zap className="w-4 h-4" />,
+      color: 'text-yellow-400'
+    },
+    { 
+      id: 2, 
+      title: 'Tejamkorlik', 
+      desc: 'Bugun xarajat 100,000 dan oshmasin', 
+      done: todayExpense < 100000 && todayExpense > 0,
+      icon: <Shield className="w-4 h-4" />,
+      color: 'text-cyan-400'
+    },
+    { 
+      id: 3, 
+      title: 'Oltin yig\'uvchi', 
+      desc: 'Bugun daromad qo\'shing', 
+      done: todayIncome > 0,
+      icon: <TrendingUp className="w-4 h-4" />,
+      color: 'text-emerald-400'
+    },
+  ];
+
+  const level = profile?.level || 1;
+  const xp = profile?.xp || 0;
+  const nextLevelXp = level * 1000;
+  const xpProgress = (xp / nextLevelXp) * 100;
+
+  const getWealthRank = (bal: number) => {
+    if (bal < 1000000) return { name: 'Qashshoq Sarguzashtchi', color: 'text-gray-400' };
+    if (bal < 5000000) return { name: 'Oltin Izlovchi', color: 'text-yellow-400' };
+    if (bal < 20000000) return { name: 'Boy Savdogar', color: 'text-cyan-400' };
+    return { name: 'Afsonaviy Sulton', color: 'text-purple-400' };
+  };
+  const rank = getWealthRank(balance);
 
   const filteredTransactions = transactions.filter(tx => {
     const matchesSearch = tx.category.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -685,11 +881,17 @@ function Dashboard({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black italic">Salom, {profile?.name}!</h2>
-          <p className="text-muted-foreground text-sm">Moliyaviy holatingiz a'lo darajada.</p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-muted-foreground text-sm">Moliyaviy holatingiz a'lo darajada.</p>
+            <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20">
+              <Zap className="w-3 h-3 text-orange-500" />
+              <span className="text-[10px] font-black text-orange-500">{streak} KUNLIK STREAK</span>
+            </div>
+          </div>
         </div>
         <div className={cn(
           "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg border-2 border-background overflow-hidden",
-          !profile?.photoURL && (profile?.avatarColor || 'bg-cyan-500')
+          !profile?.photoURL && (profile?.avatarColor?.startsWith('from-') ? `bg-gradient-to-br ${profile.avatarColor}` : (profile?.avatarColor || 'bg-cyan-500'))
         )}>
           {profile?.photoURL ? (
             <img src={profile.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -703,8 +905,30 @@ function Dashboard({
       <div className="rpg-gradient p-6 rounded-3xl text-white shadow-2xl shadow-purple-500/30 relative overflow-hidden border border-white/10">
         <div className="absolute top-[-20%] right-[-10%] w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
         <div className="relative z-10">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-80">Umumiy balans</p>
-          <h3 className="text-4xl font-black mt-1">{formatCurrency(balance, profile?.currency)}</h3>
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-80">Umumiy balans</p>
+                <span className={cn("text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/10 border border-white/10", rank.color)}>
+                  {rank.name}
+                </span>
+              </div>
+              <h3 className="text-4xl font-black mt-1">{formatCurrency(balance, profile?.currency)}</h3>
+            </div>
+            <div className="text-right">
+              <div className="inline-flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg border border-white/10">
+                <Award className="w-3 h-3 text-yellow-400" />
+                <span className="text-[10px] font-black uppercase tracking-widest">LVL {level}</span>
+              </div>
+              <div className="mt-2 w-24 h-1.5 bg-white/10 rounded-full overflow-hidden border border-white/5">
+                <div 
+                  className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000" 
+                  style={{ width: `${xpProgress}%` }}
+                ></div>
+              </div>
+              <p className="text-[8px] font-bold uppercase tracking-widest mt-1 opacity-60">{xp} / {nextLevelXp} XP</p>
+            </div>
+          </div>
           
           <div className="grid grid-cols-2 gap-4 mt-8">
             <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-inner">
@@ -725,6 +949,61 @@ function Dashboard({
         </div>
       </div>
 
+      {/* Adventure Status (HP & Goals) */}
+      <div className="grid grid-cols-1 gap-4">
+        {/* Budget HP Bar */}
+        <div className="rpg-card p-5 rounded-3xl border-pink-500/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-pink-500" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Byudjet Sog'lig'i (HP)</span>
+            </div>
+            <span className={cn("text-[10px] font-black", budgetHP < 20 ? "text-red-500 animate-pulse" : "text-pink-500")}>
+              {budgetHP}% HP
+            </span>
+          </div>
+          <div className="h-3 bg-accent rounded-full overflow-hidden border border-white/5">
+            <div 
+              className={cn(
+                "h-full transition-all duration-1000 shadow-[0_0_10px_rgba(236,72,153,0.3)]",
+                budgetHP > 50 ? "bg-emerald-500" : budgetHP > 20 ? "bg-yellow-500" : "bg-red-500"
+              )}
+              style={{ width: `${budgetHP}%` }}
+            ></div>
+          </div>
+          <p className="text-[8px] text-muted-foreground mt-2 uppercase tracking-widest font-bold opacity-60">
+            {budgetHP < 20 ? "DIQQAT: SIZNING OLTINLARINGIZ TUGAMOQDA!" : "SIZNING BYUDJETINGIZ SOG'LOM"}
+          </p>
+        </div>
+
+        {/* Savings Goal */}
+        {profile?.savingsGoal && (
+          <div className="rpg-card p-5 rounded-3xl border-cyan-500/20">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-cyan-500" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Maqsad: {profile.savingsGoal}</span>
+              </div>
+              <span className="text-[10px] font-black text-cyan-500">{savingsGoalProgress}%</span>
+            </div>
+            <div className="h-3 bg-accent rounded-full overflow-hidden border border-white/5">
+              <div 
+                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-all duration-1000"
+                style={{ width: `${savingsGoalProgress}%` }}
+              ></div>
+            </div>
+            <div className="flex justify-between mt-2">
+              <p className="text-[8px] text-muted-foreground uppercase tracking-widest font-bold opacity-60">
+                {formatCurrency(balance, profile.currency)} yig'ildi
+              </p>
+              <p className="text-[8px] text-muted-foreground uppercase tracking-widest font-bold opacity-60">
+                Maqsad: {formatCurrency(profile.savingsGoalAmount || 0, profile.currency)}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Budget Warning */}
       {budgetExceeded && (
         <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center gap-4 animate-pulse shadow-lg shadow-red-500/5">
@@ -740,6 +1019,317 @@ function Dashboard({
 
       {/* AI Advice Section */}
       <AIAdvice transactions={transactions} profile={profile} />
+
+      {/* Financial Forecast (New Useful Feature) */}
+      <div className="rpg-card p-6 rounded-3xl border-blue-500/20 relative overflow-hidden group">
+        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <Sparkles className="w-12 h-12 text-blue-500" />
+        </div>
+        <div className="relative z-10 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-blue-500" />
+              </div>
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Moliyaviy Bashorat</h4>
+                <p className="text-[8px] text-blue-500 font-bold uppercase tracking-tighter">Oy oxirigacha kutilayotgan holat</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className={cn(
+                "text-[10px] font-black px-2 py-0.5 rounded-full border",
+                forecast.safetyScore > 70 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" :
+                forecast.safetyScore > 40 ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-500" :
+                "bg-red-500/10 border-red-500/20 text-red-500"
+              )}>
+                XAVFSIZLIK: {forecast.safetyScore}%
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Kutilayotgan xarajat</p>
+              <p className="text-sm font-black text-blue-400">{formatCurrency(forecast.projectedExpense, profile?.currency)}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Kutilayotgan jamg'arma</p>
+              <p className={cn("text-sm font-black", forecast.projectedSavings >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {formatCurrency(forecast.projectedSavings, profile?.currency)}
+              </p>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/5">
+            <p className="text-[9px] text-muted-foreground leading-relaxed italic">
+              {forecast.safetyScore > 70 
+                ? "Siz juda tejamkorsiz! Oy oxirigacha byudjetingiz bemalol yetadi." 
+                : forecast.safetyScore > 40 
+                ? "Holat barqaror, lekin kutilmagan xarajatlardan ehtiyot bo'ling." 
+                : "Diqqat! Hozirgi sarflash tezligingiz bilan byudjetingiz oy oxirigacha yetmasligi mumkin."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Achievements Preview */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Yutuqlar</h4>
+          <button onClick={() => {/* Navigate to profile achievements */}} className="text-[10px] font-bold text-cyan-500 hover:underline">Hammasi</button>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+          {[
+            { name: 'Tejamkor', icon: '🛡️', unlocked: budgetHP > 50, desc: 'Byudjet 50% dan yuqori' },
+            { name: 'Boyvachcha', icon: '💰', unlocked: balance > 1000000, desc: '1 mln balans' },
+            { name: 'Intizomli', icon: '📜', unlocked: streak >= 3, desc: '3 kunlik streak' },
+            { name: 'Sarmoyador', icon: '💎', unlocked: savingsGoalProgress > 50, desc: 'Maqsad 50% bajarildi' },
+          ].map((ach, i) => (
+            <div 
+              key={i}
+              className={cn(
+                "flex-shrink-0 w-32 p-3 rounded-2xl border transition-all",
+                ach.unlocked 
+                  ? "bg-emerald-500/5 border-emerald-500/20 opacity-100" 
+                  : "bg-accent/50 border-border opacity-40 grayscale"
+              )}
+            >
+              <div className="text-2xl mb-2">{ach.icon}</div>
+              <p className="text-[10px] font-black uppercase tracking-tight truncate">{ach.name}</p>
+              <p className="text-[8px] text-muted-foreground leading-tight mt-1">{ach.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Equipment Shop (Wishlist) */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4 text-purple-500" />
+            <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Anjomlar Do'koni (Wishlist)</h4>
+          </div>
+          <button 
+            onClick={() => setShowShopModal(true)}
+            className="flex items-center gap-1 text-[10px] font-black text-purple-500 hover:text-purple-400 transition-colors"
+          >
+            <PlusCircle className="w-3 h-3" />
+            ANJOM QO'SHISH
+          </button>
+        </div>
+        
+        <div className="grid grid-cols-1 gap-3">
+          {profile?.wishlist && profile.wishlist.length > 0 ? (
+            profile.wishlist.map((item) => {
+              const remaining = Math.max(0, item.price - balance);
+              const daysToReach = Math.ceil(remaining / dailySavings);
+              const progress = Math.min(100, Math.round((balance / item.price) * 100));
+              
+              return (
+                <div key={item.id} className="rpg-card p-4 rounded-2xl border-purple-500/20 relative overflow-hidden group">
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-2xl shadow-inner">
+                      {item.icon}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h5 className="text-xs font-black uppercase tracking-widest">{item.name}</h5>
+                        <button 
+                          onClick={() => {
+                            const newWishlist = profile.wishlist?.filter(w => w.id !== item.id) || [];
+                            onUpdateWishlist(newWishlist);
+                          }}
+                          className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-sm font-black text-purple-400">{formatCurrency(item.price, profile.currency)}</p>
+                        <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
+                          {remaining > 0 ? `${daysToReach} kundan keyin` : "Sotib olish mumkin!"}
+                        </p>
+                      </div>
+                      <div className="mt-2 h-1.5 bg-accent rounded-full overflow-hidden">
+                        <div 
+                          className={cn(
+                            "h-full transition-all duration-1000",
+                            progress === 100 ? "bg-emerald-500 shadow-[0_0_10px_#10b981]" : "bg-purple-500"
+                          )}
+                          style={{ width: `${progress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="rpg-card p-8 rounded-2xl border-dashed border-white/10 flex flex-col items-center justify-center text-center space-y-2">
+              <Package className="w-8 h-8 text-muted-foreground/30" />
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">Hali anjomlar yo'q</p>
+              <button 
+                onClick={() => setShowShopModal(true)}
+                className="text-[10px] font-black text-purple-500 hover:underline"
+              >
+                BIRINCHISINI QO'SHING
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Shop Modal */}
+      {showShopModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="rpg-card p-6 rounded-3xl border-purple-500/30 max-w-sm w-full space-y-6 animate-in zoom-in-95 duration-300">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-black uppercase tracking-widest">Yangi Anjom</h4>
+              <button onClick={() => setShowShopModal(false)} className="text-muted-foreground hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Anjom nomi</label>
+                <input 
+                  type="text" 
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-purple-500 transition-all text-sm"
+                  placeholder="Masalan: iPhone 15"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Narxi</label>
+                <input 
+                  type="number" 
+                  value={newItemPrice}
+                  onChange={(e) => setNewItemPrice(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-purple-500 transition-all text-sm"
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Ikonka</label>
+                <div className="grid grid-cols-5 gap-2">
+                  {['📦', '📱', '💻', '🚗', '🏠', '🍕', '🎮', '👟', '⌚', '🚲'].map(icon => (
+                    <button 
+                      key={icon}
+                      onClick={() => setNewItemIcon(icon)}
+                      className={cn(
+                        "w-10 h-10 rounded-lg flex items-center justify-center text-xl transition-all",
+                        newItemIcon === icon ? "bg-purple-500 text-white scale-110" : "bg-white/5 hover:bg-white/10"
+                      )}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => {
+                if (!newItemName || !newItemPrice) return;
+                const newItem = {
+                  id: Date.now().toString(),
+                  name: newItemName,
+                  price: Number(newItemPrice),
+                  icon: newItemIcon
+                };
+                const newWishlist = [...(profile?.wishlist || []), newItem];
+                onUpdateWishlist(newWishlist);
+                setShowShopModal(false);
+                setNewItemName('');
+                setNewItemPrice('');
+              }}
+              className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              DO'KONGA QO'SHISH
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Actions */}
+      <div className="space-y-4">
+        <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground px-1">Tezkor amallar</h4>
+        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+          {[
+            { label: 'Tushlik', cat: 'Ovqat', amount: 30000, icon: '🍔' },
+            { label: 'Yo\'l kira', cat: 'Transport', amount: 2000, icon: '🚌' },
+            { label: 'Kofe', cat: 'O\'yin-kulgi', amount: 15000, icon: '☕' },
+            { label: 'Bozor', cat: 'Xaridlar', amount: 100000, icon: '🛒' },
+          ].map((action, i) => (
+            <button
+              key={i}
+              onClick={async () => {
+                try {
+                  await addDoc(collection(db, 'transactions'), {
+                    uid: profile?.uid,
+                    type: 'expense',
+                    amount: action.amount,
+                    category: action.cat,
+                    date: serverTimestamp(),
+                    note: action.label,
+                    createdAt: serverTimestamp()
+                  });
+                  // XP qo'shish mantiqi (ixtiyoriy, lekin yaxshi bo'lardi)
+                  if (profile) {
+                    await updateDoc(doc(db, 'users', profile.uid), {
+                      xp: (profile.xp || 0) + 20
+                    });
+                  }
+                } catch (err) {
+                  console.error(err);
+                }
+              }}
+              className="flex-shrink-0 rpg-card p-3 rounded-2xl flex flex-col items-center gap-2 min-w-[80px] hover:border-cyan-500/50 transition-all active:scale-95"
+            >
+              <span className="text-xl">{action.icon}</span>
+              <span className="text-[9px] font-black uppercase tracking-widest">{action.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Daily Quests */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Kunlik Topshiriqlar</h4>
+          <span className="text-[10px] font-bold text-yellow-500">{quests.filter(q => q.done).length} / {quests.length}</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3">
+          {quests.map(quest => (
+            <div key={quest.id} className={cn(
+              "rpg-card p-4 rounded-2xl flex items-center gap-4 border transition-all",
+              quest.done ? "border-emerald-500/30 bg-emerald-500/5 opacity-70" : "border-white/5 hover:border-white/10"
+            )}>
+              <div className={cn(
+                "w-10 h-10 rounded-xl flex items-center justify-center shadow-lg",
+                quest.done ? "bg-emerald-500/20 text-emerald-500" : "bg-white/5 text-muted-foreground"
+              )}>
+                {quest.done ? <ShieldCheck className="w-5 h-5" /> : quest.icon}
+              </div>
+              <div className="flex-1">
+                <h5 className={cn("text-xs font-black uppercase tracking-widest", quest.done ? "text-emerald-500" : "text-foreground")}>
+                  {quest.title}
+                </h5>
+                <p className="text-[10px] text-muted-foreground font-medium">{quest.desc}</p>
+              </div>
+              {quest.done && (
+                <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <Sparkles className="w-3 h-3 text-emerald-500" />
+                  <span className="text-[8px] font-black text-emerald-500">+50 XP</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Filters & Search */}
       <div className="space-y-4">
@@ -798,7 +1388,11 @@ function Dashboard({
           <div className="space-y-3">
             {filteredTransactions.length > 0 ? (
               filteredTransactions.map(tx => (
-                <div key={tx.id} className="rpg-card p-4 rounded-2xl flex items-center justify-between hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border border-white/5 hover:border-white/10">
+                <div 
+                  key={tx.id} 
+                  onClick={() => onEditTransaction(tx)}
+                  className="rpg-card p-4 rounded-2xl flex items-center justify-between hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer border border-white/5 hover:border-white/10"
+                >
                   <div className="flex items-center gap-4">
                     <div className={cn(
                       "w-12 h-12 rounded-xl flex items-center justify-center shadow-lg",
@@ -863,7 +1457,12 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
         My currency is ${profile?.currency}. 
         My monthly budget is ${profile?.monthlyBudget}.
         My recent transactions: ${JSON.stringify(transactions.slice(0, 10).map(t => ({ type: t.type, amount: t.amount, category: t.category })))}
-        Keep it in a cool, RPG-like tone (e.g., "Level up your savings", "Avoid the gold sink"). Use Markdown. Response must be in Uzbek.`,
+        
+        Rules:
+        1. Use a cool, RPG-like tone (e.g., "Level up your savings", "Avoid the gold sink").
+        2. Use Markdown: Use **bold** for key actions and bullet points for the tips.
+        3. Keep it very concise (max 2-3 sentences per tip).
+        4. Response must be in Uzbek.`,
       });
       const response = await model;
       setAdvice(response.text);
@@ -887,25 +1486,47 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
         <h4 className="font-black italic text-sm uppercase tracking-widest">AI Moliyaviy Bashorat</h4>
       </div>
 
-      {advice ? (
-        <div className="text-sm text-muted-foreground prose prose-invert max-w-none">
-          <ReactMarkdown>{advice}</ReactMarkdown>
+      {loading ? (
+        <div className="py-8 flex flex-col items-center justify-center space-y-4 animate-pulse">
+          <div className="relative">
+            <div className="w-12 h-12 border-2 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
+            <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-cyan-500 animate-bounce" />
+          </div>
+          <div className="space-y-2 text-center">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-500">Bashorat qilinmoqda</p>
+            <p className="text-[8px] text-muted-foreground uppercase tracking-widest">Oracle bilan bog'lanilmoqda...</p>
+          </div>
+        </div>
+      ) : advice ? (
+        <div className="animate-in fade-in zoom-in-95 duration-500">
+          <div className="relative p-4 rounded-2xl bg-black/40 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
+            <div className="absolute -top-2 -left-2">
+              <div className="w-6 h-6 bg-cyan-500 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/50">
+                <Zap className="w-3 h-3 text-white" />
+              </div>
+            </div>
+            <div className="text-sm text-foreground/90 leading-relaxed prose prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-cyan-400 prose-strong:font-black max-w-none">
+              <ReactMarkdown>{advice}</ReactMarkdown>
+            </div>
+          </div>
           <button 
             onClick={() => setAdvice(null)}
-            className="mt-4 text-xs font-bold text-cyan-500 hover:underline"
+            className="mt-4 w-full py-2.5 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-cyan-500 hover:border-cyan-500/50 transition-all flex items-center justify-center gap-2"
           >
-            Maslahatni o'chirish
+            <X className="w-3 h-3" />
+            Maslahatni yopish
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground italic">Moliyaviy strategiya kerakmi?</p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground italic flex-1">Moliyaviy strategiya kerakmi?</p>
           <button 
             onClick={getAdvice}
             disabled={loading}
-            className="px-4 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-500 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            className="px-6 py-3 rpg-gradient rounded-xl text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
           >
-            {loading ? 'Maslahatlashilmoqda...' : 'Maslahat olish'}
+            <Sparkles className="w-3 h-3" />
+            Oracle bilan bog'lanish
           </button>
         </div>
       )}
@@ -914,13 +1535,31 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
 }
 
 function Statistics({ transactions, profile }: { transactions: Transaction[], profile: UserProfile | null }) {
-  const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('daily');
+  const [timeframe, setTimeframe] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('weekly');
   const today = new Date();
+  
+  // Helper to get date from transaction
+  const getTxDate = (tx: Transaction) => tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+
+  // Filter transactions by timeframe
+  const filteredTxs = transactions.filter(tx => {
+    const txDate = getTxDate(tx);
+    if (timeframe === 'daily') return isSameDay(txDate, today);
+    if (timeframe === 'weekly') return txDate >= subDays(today, 7);
+    if (timeframe === 'monthly') return txDate >= subDays(today, 30);
+    if (timeframe === 'yearly') return txDate >= subDays(today, 365);
+    return true;
+  });
+
+  const income = filteredTxs.filter(tx => tx.type === 'income').reduce((sum, tx) => sum + tx.amount, 0);
+  const expense = filteredTxs.filter(tx => tx.type === 'expense').reduce((sum, tx) => sum + tx.amount, 0);
+  const savings = income - expense;
+  const savingsRate = income > 0 ? Math.round((savings / income) * 100) : 0;
   
   // Daily Stats (Today hourly)
   const todayHours = Array.from({ length: 24 }, (_, i) => {
     const hourTxs = transactions.filter(tx => {
-      const txDate = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+      const txDate = getTxDate(tx);
       return isSameDay(txDate, today) && txDate.getHours() === i && tx.type === 'expense';
     });
     return {
@@ -933,7 +1572,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
   const last7Days = Array.from({ length: 7 }, (_, i) => {
     const d = subDays(today, 6 - i);
     const dayTxs = transactions.filter(tx => {
-      const txDate = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+      const txDate = getTxDate(tx);
       return isSameDay(txDate, d) && tx.type === 'expense';
     });
     const dayNames: {[key: string]: string} = {
@@ -946,11 +1585,24 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
     };
   });
 
-  // Monthly Stats (Last 6 months)
-  const last6Months = Array.from({ length: 6 }, (_, i) => {
-    const d = subDays(today, (5 - i) * 30);
+  // Monthly Stats (Last 30 days trend)
+  const last30Days = Array.from({ length: 30 }, (_, i) => {
+    const d = subDays(today, 29 - i);
+    const dayTxs = transactions.filter(tx => {
+      const txDate = getTxDate(tx);
+      return isSameDay(txDate, d) && tx.type === 'expense';
+    });
+    return {
+      name: format(d, 'dd'),
+      amount: dayTxs.reduce((sum, tx) => sum + tx.amount, 0)
+    };
+  });
+
+  // Yearly Stats (Last 12 months)
+  const last12Months = Array.from({ length: 12 }, (_, i) => {
+    const d = subDays(today, (11 - i) * 30);
     const monthTxs = transactions.filter(tx => {
-      const txDate = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+      const txDate = getTxDate(tx);
       return txDate.getMonth() === d.getMonth() && txDate.getFullYear() === d.getFullYear() && tx.type === 'expense';
     });
     const monthNames: {[key: string]: string} = {
@@ -964,125 +1616,294 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
     };
   });
 
-  // Yearly Stats (Last 3 years)
-  const last3Years = Array.from({ length: 3 }, (_, i) => {
-    const d = subDays(today, (2 - i) * 365);
-    const yearTxs = transactions.filter(tx => {
-      const txDate = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
-      return txDate.getFullYear() === d.getFullYear() && tx.type === 'expense';
-    });
-    return {
-      name: format(d, 'yyyy'),
-      amount: yearTxs.reduce((sum, tx) => sum + tx.amount, 0)
-    };
-  });
-
-  const chartData = timeframe === 'daily' ? todayHours : timeframe === 'weekly' ? last7Days : timeframe === 'monthly' ? last6Months : last3Years;
+  const chartData = timeframe === 'daily' ? todayHours : timeframe === 'weekly' ? last7Days : timeframe === 'monthly' ? last30Days : last12Months;
 
   // Category Stats
-  const categoryData = EXPENSE_CATEGORIES.map(cat => ({
-    name: cat,
-    value: transactions
+  const categoryData = EXPENSE_CATEGORIES.map(cat => {
+    const value = filteredTxs
       .filter(tx => tx.type === 'expense' && tx.category === cat)
-      .reduce((sum, tx) => sum + tx.amount, 0)
-  })).filter(d => d.value > 0);
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    return { name: cat, value };
+  }).filter(d => d.value > 0).sort((a, b) => b.value - a.value);
+
+  // Top 3 Largest Expenses
+  const topExpenses = filteredTxs
+    .filter(tx => tx.type === 'expense')
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 3);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col gap-4 mb-8">
-        <div>
-          <h2 className="text-2xl font-black italic">Statistika</h2>
-          <p className="text-muted-foreground text-sm">Moliyaviy sarguzashtingizni kuzating.</p>
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-black italic tracking-tight">Statistika</h2>
+            <p className="text-muted-foreground text-xs uppercase tracking-widest font-bold opacity-70">Moliyaviy sarguzashtingiz tahlili</p>
+          </div>
+          <div className="p-1 bg-black/40 backdrop-blur-md rounded-xl border border-white/10 flex gap-1">
+            {(['daily', 'weekly', 'monthly', 'yearly'] as const).map(tf => (
+              <button 
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                  timeframe === tf 
+                    ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tf === 'daily' ? 'Bugun' : tf === 'weekly' ? 'Hafta' : tf === 'monthly' ? 'Oy' : 'Yil'}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex p-1 bg-accent rounded-xl gap-1">
-          {(['daily', 'weekly', 'monthly', 'yearly'] as const).map(tf => (
-            <button 
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={cn(
-                "flex-1 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                timeframe === tf ? "bg-background text-cyan-500 shadow-sm" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {tf === 'daily' ? 'Bugun' : tf === 'weekly' ? 'Hafta' : tf === 'monthly' ? 'Oy' : 'Yil'}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* Chart */}
-      <div className="rpg-card p-6 rounded-3xl">
-        <h4 className="font-bold text-xs uppercase tracking-widest mb-6 text-muted-foreground">
-          {timeframe === 'daily' ? 'Bugungi' : timeframe === 'weekly' ? 'Haftalik' : timeframe === 'monthly' ? 'Oylik' : 'Yillik'} xarajatlar
-        </h4>
-        <div className="h-[250px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 'bold' }} 
-              />
-              <YAxis hide />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                itemStyle={{ color: '#00FFFF', fontWeight: 'bold' }}
-              />
-              <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={index === chartData.length - 1 ? '#00FFFF' : '#6366f1'} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Category Pie Chart */}
-      <div className="rpg-card p-6 rounded-3xl">
-        <h4 className="font-bold text-xs uppercase tracking-widest mb-6 text-muted-foreground">Xarajatlar taqsimoti</h4>
-        <div className="h-[250px] w-full flex items-center justify-center">
-          {categoryData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {categoryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-muted-foreground italic text-sm">Ko'rsatish uchun ma'lumot yo'q.</p>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-2 mt-4">
-          {categoryData.map((d, i) => (
-            <div key={d.name} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-              <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">{d.name}</span>
+        {/* Summary Bento Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Daromad', value: income, color: 'text-emerald-400', icon: TrendingUp, bg: 'from-emerald-500/10' },
+            { label: 'Xarajat', value: expense, color: 'text-rose-400', icon: TrendingDown, bg: 'from-rose-500/10' },
+            { label: 'Jamg\'arma', value: savings, color: 'text-cyan-400', icon: Wallet, bg: 'from-cyan-500/10' },
+            { label: 'Tejamkorlik', value: `${savingsRate}%`, color: 'text-amber-400', icon: PieChartIcon, bg: 'from-amber-500/10' },
+          ].map((stat, i) => (
+            <div key={i} className={cn(
+              "rpg-card p-4 rounded-2xl bg-gradient-to-br to-transparent border-white/5 relative overflow-hidden group",
+              stat.bg
+            )}>
+              <div className="relative z-10">
+                <div className="flex items-center gap-2 mb-2">
+                  <stat.icon className={cn("w-3 h-3", stat.color)} />
+                  <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{stat.label}</span>
+                </div>
+                <div className={cn("text-lg font-black tracking-tight", stat.color)}>
+                  {typeof stat.value === 'number' ? formatCurrency(stat.value, profile?.currency) : stat.value}
+                </div>
+              </div>
+              <stat.icon className={cn("absolute -right-2 -bottom-2 w-16 h-16 opacity-5 group-hover:opacity-10 transition-opacity", stat.color)} />
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Chart */}
+        <div className="lg:col-span-2 rpg-card p-6 rounded-3xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-5">
+            <TrendingUp className="w-32 h-32 text-cyan-500" />
+          </div>
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground mb-1">
+                Xarajatlar dinamikasi
+              </h4>
+              <p className="text-[10px] text-muted-foreground opacity-50">Vaqt davomidagi o'zgarishlar</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_8px_rgba(0,255,255,0.5)]"></div>
+                <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Xarajat</span>
+              </div>
+            </div>
+          </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00FFFF" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#00FFFF" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                <XAxis 
+                  dataKey="name" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 9, fontWeight: '900' }} 
+                  dy={10}
+                />
+                <YAxis hide />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(0,0,0,0.8)', 
+                    backdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(255,255,255,0.1)', 
+                    borderRadius: '16px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                  }}
+                  itemStyle={{ color: '#00FFFF', fontWeight: '900', fontSize: '12px' }}
+                  labelStyle={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px', marginBottom: '4px', fontWeight: 'bold' }}
+                  formatter={(value: number) => [formatCurrency(value, profile?.currency), 'Mablag\'']}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="amount" 
+                  stroke="#00FFFF" 
+                  strokeWidth={4}
+                  fillOpacity={1} 
+                  fill="url(#colorAmount)" 
+                  animationDuration={1500}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Category Breakdown */}
+        <div className="rpg-card p-6 rounded-3xl flex flex-col">
+          <h4 className="font-black text-xs uppercase tracking-widest mb-8 text-muted-foreground">Kategoriyalar</h4>
+          <div className="flex-1 flex flex-col justify-center">
+            <div className="h-[220px] w-full relative">
+              {categoryData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={70}
+                        outerRadius={90}
+                        paddingAngle={8}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {categoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'rgba(0,0,0,0.8)', 
+                          backdropFilter: 'blur(12px)',
+                          border: '1px solid rgba(255,255,255,0.1)', 
+                          borderRadius: '16px' 
+                        }}
+                        formatter={(value: number) => formatCurrency(value, profile?.currency)}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Jami</span>
+                    <span className="text-lg font-black">{formatCurrency(expense, profile?.currency)}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                  <PieChartIcon className="w-12 h-12 text-muted-foreground/20 mb-2" />
+                  <p className="text-muted-foreground italic text-xs font-bold uppercase tracking-widest">Ma'lumot yo'q</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-8 space-y-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+              {categoryData.map((cat, i) => (
+                <div key={cat.name} className="flex items-center justify-between group">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">{cat.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-foreground">{formatCurrency(cat.value, profile?.currency)}</span>
+                    <span className="text-[9px] font-bold text-muted-foreground opacity-50">{Math.round((cat.value / expense) * 100)}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Expenses & Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rpg-card p-6 rounded-3xl">
+          <div className="flex items-center justify-between mb-6">
+            <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground">Eng katta xarajatlar</h4>
+            <ShieldCheck className="w-4 h-4 text-cyan-500 opacity-50" />
+          </div>
+          <div className="space-y-4">
+            {topExpenses.length > 0 ? (
+              topExpenses.map((tx, i) => (
+                <div key={tx.id} className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
+                  <div className="w-10 h-10 rounded-xl bg-black/40 flex items-center justify-center text-lg font-black italic text-cyan-500 border border-white/5 group-hover:scale-110 transition-transform">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">
+                      {tx.note || tx.category}
+                    </p>
+                    <p className="text-[9px] font-bold text-muted-foreground opacity-50">
+                      {format(getTxDate(tx), 'dd MMMM, yyyy', { locale: uz })}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-rose-400">-{formatCurrency(tx.amount, profile?.currency)}</p>
+                    <div className="flex items-center justify-end gap-1">
+                      <div className="w-1 h-1 rounded-full bg-rose-500"></div>
+                      <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Xarajat</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center py-8 text-muted-foreground italic text-xs font-bold uppercase tracking-widest">Xarajatlar mavjud emas</p>
+            )}
+          </div>
+        </div>
+
+        <div className="rpg-card p-6 rounded-3xl bg-gradient-to-br from-cyan-500/5 to-transparent flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute -right-8 -bottom-8 opacity-5">
+            <Zap className="w-48 h-48 text-cyan-500" />
+          </div>
+          <div className="relative z-10">
+            <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground mb-6">Kunlik o'rtacha tahlil</h4>
+            <div className="space-y-6">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">O'rtacha kunlik xarajat</p>
+                <div className="flex items-end gap-2">
+                  <span className="text-3xl font-black tracking-tighter text-cyan-500">
+                    {formatCurrency(Math.round(expense / (timeframe === 'daily' ? 1 : timeframe === 'weekly' ? 7 : timeframe === 'monthly' ? 30 : 365)), profile?.currency)}
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 opacity-50">/ kun</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Tranzaksiyalar</p>
+                  <p className="text-xl font-black">{filteredTxs.length}</p>
+                </div>
+                <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Eng faol kun</p>
+                  <p className="text-xl font-black">
+                    {chartData.length > 0 ? chartData.reduce((prev, current) => (prev.amount > current.amount) ? prev : current).name : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-8 p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 relative z-10">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-cyan-500/20">
+                <Zap className="w-4 h-4 text-cyan-500" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-500 mb-1">Maslahat</p>
+                <p className="text-[11px] font-bold text-muted-foreground leading-relaxed">
+                  {savingsRate > 20 
+                    ? "Ajoyib! Sizning jamg'arma darajangiz yuqori. Investitsiya haqida o'ylab ko'ring." 
+                    : "Xarajatlarni biroz kamaytirish orqali jamg'armani 20% ga yetkazishga harakat qiling."}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ProfilePage({ profile, user, transactions }: { profile: UserProfile | null, user: FirebaseUser, transactions: Transaction[] }) {
+function ProfilePage({ profile, user, transactions, setNotifications }: { profile: UserProfile | null, user: FirebaseUser, transactions: Transaction[], setNotifications: React.Dispatch<React.SetStateAction<Notification[]>> }) {
   const [name, setName] = useState(profile?.name || '');
   const [budget, setBudget] = useState(profile?.monthlyBudget || 1000000);
   const [currency, setCurrency] = useState(profile?.currency || 'UZS');
@@ -1091,6 +1912,8 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
   const [theme, setTheme] = useState(profile?.theme || 'Cyberpunk');
   const [avatarColor, setAvatarColor] = useState(profile?.avatarColor || 'bg-cyan-500');
   const [photoURL, setPhotoURL] = useState(profile?.photoURL || '');
+  const [savingsGoal, setSavingsGoal] = useState(profile?.savingsGoal || '');
+  const [savingsGoalAmount, setSavingsGoalAmount] = useState(profile?.savingsGoalAmount || 0);
   const [saving, setSaving] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -1116,8 +1939,50 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
   const rank = getWealthRank(balance);
 
   // Profile Completeness
-  const fields = [name, budget, currency, language, birthday, theme, photoURL];
+  const fields = [name, budget, currency, language, birthday, theme, photoURL, savingsGoal, savingsGoalAmount];
   const completeness = Math.round((fields.filter(f => !!f).length / fields.length) * 100);
+
+  // Financial Skills Calculation
+  const calculateStreak = () => {
+    if (transactions.length === 0) return 0;
+    let streakCount = 0;
+    let checkDate = new Date();
+    const sortedTxs = [...transactions].sort((a, b) => {
+      const da = a.date instanceof Timestamp ? a.date.toDate() : new Date(a.date);
+      const db = b.date instanceof Timestamp ? b.date.toDate() : new Date(b.date);
+      return db.getTime() - da.getTime();
+    });
+    const hasToday = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+    if (!hasToday) {
+      checkDate = subDays(checkDate, 1);
+      const hasYesterday = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+      if (!hasYesterday) return 0;
+    }
+    while (true) {
+      const hasTx = sortedTxs.some(tx => isSameDay(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), checkDate));
+      if (hasTx) {
+        streakCount++;
+        checkDate = subDays(checkDate, 1);
+      } else {
+        break;
+      }
+    }
+    return streakCount;
+  };
+
+  const streak = calculateStreak();
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const monthExpense = transactions
+    .filter(tx => {
+      const d = tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear && tx.type === 'expense';
+    })
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  const savingSkill = Math.min(100, totalIncome > 0 ? Math.round((balance / totalIncome) * 100) : 0);
+  const disciplineSkill = Math.min(100, Math.round((streak / 30) * 100));
+  const strategySkill = profile?.monthlyBudget ? Math.min(100, Math.max(0, Math.round((1 - (monthExpense / profile.monthlyBudget)) * 100))) : 0;
 
   const handleSave = async () => {
     setSaving(true);
@@ -1130,7 +1995,9 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
         birthday,
         theme,
         avatarColor,
-        photoURL
+        photoURL,
+        savingsGoal,
+        savingsGoalAmount: Number(savingsGoalAmount)
       });
       alert('Profil muvaffaqiyatli yangilandi!');
     } catch (err) {
@@ -1144,8 +2011,15 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1024 * 1024) { // 1MB limit
-      alert('Rasm hajmi 1MB dan oshmasligi kerak!');
+    if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      const newNotification: Notification = {
+        id: Date.now().toString(),
+        title: 'Xatolik',
+        message: 'Rasm hajmi 10MB dan oshmasligi kerak!',
+        date: new Date(),
+        read: false
+      };
+      setNotifications(prev => [newNotification, ...prev]);
       return;
     }
 
@@ -1191,13 +2065,32 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
   };
 
   const exportData = () => {
-    const data = JSON.stringify({ profile, transactions }, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `moneyday_export_${format(new Date(), 'yyyy-MM-dd')}.json`;
-    a.click();
+    if (transactions.length === 0) {
+      alert('Eksport qilish uchun tranzaksiyalar mavjud emas!');
+      return;
+    }
+
+    // Prepare data for Excel
+    const excelData = transactions.map(t => ({
+      'Sana': t.date instanceof Timestamp ? format(t.date.toDate(), 'yyyy-MM-dd HH:mm') : 
+              t.date?.toDate ? format(t.date.toDate(), 'yyyy-MM-dd HH:mm') :
+              t.date instanceof Date ? format(t.date, 'yyyy-MM-dd HH:mm') : String(t.date),
+      'Turi': t.type === 'income' ? 'Daromad' : 'Xarajat',
+      'Kategoriya': t.category,
+      'Miqdor': t.amount,
+      'Valyuta': profile?.currency || 'UZS',
+      'Izoh': t.note || ''
+    }));
+
+    // Create worksheet
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tranzaksiyalar');
+
+    // Generate and download file
+    XLSX.writeFile(workbook, `moneyday_hisobot_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   };
 
   const achievements = [
@@ -1207,17 +2100,28 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
   ];
 
   const avatarColors = [
-    'bg-cyan-500', 'bg-purple-500', 'bg-pink-500', 'bg-emerald-500', 'bg-yellow-500', 'bg-indigo-500'
+    'from-cyan-500 to-blue-600', 
+    'from-purple-500 to-indigo-600', 
+    'from-pink-500 to-rose-600', 
+    'from-emerald-500 to-teal-600', 
+    'from-yellow-500 to-orange-600', 
+    'from-indigo-500 to-violet-600'
   ];
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       {/* Profile Header */}
       <div className="relative">
-        <div className="h-32 w-full bg-gradient-to-r from-cyan-500/20 to-purple-500/20 rounded-3xl border border-white/5 overflow-hidden">
+        <div className="h-40 w-full bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-emerald-500/20 rounded-3xl border border-white/5 overflow-hidden relative">
           <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+          <div className="absolute top-4 right-4 flex gap-2">
+            <div className="px-3 py-1 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
+              <Trophy className="w-3 h-3 text-yellow-400" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-white">Rank: {rank.name}</span>
+            </div>
+          </div>
         </div>
-        <div className="absolute -bottom-10 left-6 flex items-end gap-4">
+        <div className="absolute -bottom-12 left-6 flex items-end gap-6">
           <div className="relative group">
             <input 
               type="file" 
@@ -1230,7 +2134,7 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "w-24 h-24 rounded-3xl flex items-center justify-center text-white text-4xl font-black shadow-2xl border-4 border-background overflow-hidden transition-all cursor-pointer",
-                !photoURL && avatarColor
+                !photoURL && (avatarColor.startsWith('from-') ? `bg-gradient-to-br ${avatarColor}` : avatarColor)
               )}
             >
               {photoURL ? (
@@ -1248,7 +2152,7 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
                   e.stopPropagation();
                   setPhotoURL('');
                 }}
-                className="absolute -top-2 -left-2 w-8 h-8 bg-red-500 rounded-xl border border-background flex items-center justify-center shadow-lg hover:scale-110 transition-all"
+                className="absolute -top-2 -left-2 w-8 h-8 bg-red-500 rounded-xl border border-background flex items-center justify-center shadow-lg hover:scale-110 transition-all opacity-0 group-hover:opacity-100 z-20"
               >
                 <X className="w-4 h-4 text-white" />
               </button>
@@ -1307,6 +2211,70 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
         </div>
       </div>
 
+      {/* Financial Skills (RPG Style) */}
+      <div className="rpg-card p-6 rounded-3xl space-y-6">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Moliyaviy Mahoratlar</h4>
+          <div className="flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
+            <span className="text-[10px] font-black text-cyan-500 uppercase">Live Stats</span>
+          </div>
+        </div>
+        
+        <div className="space-y-5">
+          {/* Saving Skill */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+              <span className="flex items-center gap-2">
+                <Shield className="w-3 h-3 text-emerald-500" />
+                Tejamkorlik
+              </span>
+              <span className="text-emerald-500">{savingSkill}%</span>
+            </div>
+            <div className="h-2 bg-accent rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)] transition-all duration-1000"
+                style={{ width: `${savingSkill}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Discipline Skill */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+              <span className="flex items-center gap-2">
+                <Zap className="w-3 h-3 text-yellow-500" />
+                Intizom
+              </span>
+              <span className="text-yellow-500">{disciplineSkill}%</span>
+            </div>
+            <div className="h-2 bg-accent rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.3)] transition-all duration-1000"
+                style={{ width: `${disciplineSkill}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Strategy Skill */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+              <span className="flex items-center gap-2">
+                <Target className="w-3 h-3 text-purple-500" />
+                Strategiya
+              </span>
+              <span className="text-purple-500">{strategySkill}%</span>
+            </div>
+            <div className="h-2 bg-accent rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.3)] transition-all duration-1000"
+                style={{ width: `${strategySkill}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
         <div className="rpg-card p-4 rounded-2xl border-emerald-500/20">
@@ -1353,179 +2321,344 @@ function ProfilePage({ profile, user, transactions }: { profile: UserProfile | n
         </div>
       </div>
 
+      {/* Quest Log (Recent Activity) */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-1">
+          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Sarguzashtlar Tarixi</h4>
+          <Activity className="w-4 h-4 text-cyan-500" />
+        </div>
+        <div className="rpg-card p-4 rounded-3xl space-y-4">
+          {transactions.slice(0, 5).map((tx, i) => (
+            <div key={tx.id} className="flex items-center gap-4 border-b border-white/5 last:border-0 pb-3 last:pb-0">
+              <div className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center text-xs",
+                tx.type === 'income' ? "bg-emerald-500/10 text-emerald-500" : "bg-pink-500/10 text-pink-500"
+              )}>
+                {tx.type === 'income' ? '+' : '-'}
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-bold">{tx.category}</p>
+                <p className="text-[10px] text-muted-foreground">{tx.note || 'Izohsiz'}</p>
+              </div>
+              <div className="text-right">
+                <p className={cn("text-xs font-black", tx.type === 'income' ? "text-emerald-500" : "text-pink-500")}>
+                  {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, profile?.currency)}
+                </p>
+                <p className="text-[8px] text-muted-foreground uppercase">{format(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), 'dd MMM', { locale: uz })}</p>
+              </div>
+            </div>
+          ))}
+          {transactions.length === 0 && (
+            <p className="text-center py-4 text-xs text-muted-foreground italic">Hali sarguzashtlar mavjud emas...</p>
+          )}
+        </div>
+      </div>
+
       {/* Avatar Customization */}
       <div className="rpg-card p-6 rounded-3xl space-y-4">
         <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Avatar rangi</h4>
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 py-4">
           {avatarColors.map(color => (
             <button 
               key={color}
               onClick={() => setAvatarColor(color)}
               className={cn(
-                "w-10 h-10 rounded-xl shrink-0 border-2 transition-all",
-                color,
-                avatarColor === color ? "border-white scale-110 shadow-lg" : "border-transparent opacity-60 hover:opacity-100"
+                "aspect-square rounded-2xl transition-all relative group min-h-[60px]",
+                color.startsWith('from-') ? `bg-gradient-to-br ${color}` : color,
+                avatarColor === color 
+                  ? "ring-2 ring-white ring-offset-4 ring-offset-background scale-110 shadow-[0_0_25px_rgba(255,255,255,0.3)]" 
+                  : "opacity-40 hover:opacity-100 hover:scale-105"
               )}
-            />
+            >
+              {avatarColor === color && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_12px_#fff]"></div>
+                </div>
+              )}
+            </button>
           ))}
         </div>
       </div>
 
       {/* Settings Form */}
-      <div className="rpg-card p-6 rounded-3xl space-y-6">
-        <div className="flex items-center gap-2">
-          <Settings className="w-4 h-4 text-muted-foreground" />
-          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Sozlamalar</h4>
-        </div>
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Ko'rinadigan ism</label>
-            <div className="relative">
-              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input 
-                type="text" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
-              />
+      <div className="rpg-card p-6 rounded-3xl space-y-8">
+        <div className="flex items-center justify-between border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+              <Settings className="w-5 h-5 text-cyan-500" />
             </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Tug'ilgan kun</label>
-            <div className="relative">
-              <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input 
-                type="date" 
-                value={birthday}
-                onChange={(e) => setBirthday(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
-              />
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest">Sozlamalar</h4>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-tighter">Qahramon atributlarini tahrirlash</p>
             </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Oylik byudjet limiti</label>
-            <div className="relative">
-              <Wallet className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input 
-                type="number" 
-                value={budget}
-                onChange={(e) => setBudget(Number(e.target.value))}
-                className="w-full bg-accent/50 border border-border rounded-xl pl-12 pr-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Valyuta</label>
-              <select 
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none"
-              >
-                <option value="UZS">UZS</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Til</label>
-              <select 
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none"
-              >
-                <option value="uz">O'zbek</option>
-                <option value="en">English</option>
-                <option value="ru">Русский</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">RPG Mavzusi</label>
-            <select 
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-              className="w-full bg-accent/50 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none"
-            >
-              <option value="Cyberpunk">Cyberpunk (Neon)</option>
-              <option value="Fantasy">Fantasy (Oltin)</option>
-              <option value="Minimal">Minimal (Slate)</option>
-            </select>
           </div>
         </div>
 
-        <div className="pt-4 space-y-3">
+        <div className="space-y-6">
+          {/* Section: Personal Info */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-1 h-4 bg-cyan-500 rounded-full"></div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Shaxsiy ma'lumotlar</span>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Ko'rinadigan ism</label>
+                <div className="relative group">
+                  <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-cyan-500 transition-colors" />
+                  <input 
+                    type="text" 
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50 transition-all placeholder:text-muted-foreground/30"
+                    placeholder="Qahramon nomi"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Tug'ilgan kun</label>
+                <div className="relative group">
+                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-cyan-500 transition-colors" />
+                  <input 
+                    type="date" 
+                    value={birthday}
+                    onChange={(e) => setBirthday(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50 transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Savings Goal */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Jamg'arma maqsadi</span>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Maqsad nomi</label>
+                <div className="relative group">
+                  <Target className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-emerald-500 transition-colors" />
+                  <input 
+                    type="text" 
+                    value={savingsGoal}
+                    onChange={(e) => setSavingsGoal(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/50 transition-all placeholder:text-muted-foreground/30"
+                    placeholder="Masalan: Yangi noutbuk"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Maqsad summasi</label>
+                <div className="relative group">
+                  <Coins className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-emerald-500 transition-colors" />
+                  <input 
+                    type="number" 
+                    value={savingsGoalAmount}
+                    onChange={(e) => setSavingsGoalAmount(Number(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/50 transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section: App Settings */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ilova sozlamalari</span>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Oylik byudjet limiti</label>
+                <div className="relative group">
+                  <Wallet className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-purple-500 transition-colors" />
+                  <input 
+                    type="number" 
+                    value={budget}
+                    onChange={(e) => setBudget(Number(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500/50 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Valyuta</label>
+                  <div className="relative">
+                    <select 
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500/50 transition-all appearance-none text-sm font-bold"
+                    >
+                      <option value="UZS" className="bg-zinc-900">UZS (So'm)</option>
+                      <option value="USD" className="bg-zinc-900">USD ($)</option>
+                      <option value="EUR" className="bg-zinc-900">EUR (€)</option>
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Til</label>
+                  <div className="relative">
+                    <select 
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500/50 transition-all appearance-none text-sm font-bold"
+                    >
+                      <option value="uz" className="bg-zinc-900">O'zbekcha</option>
+                      <option value="en" className="bg-zinc-900">English</option>
+                      <option value="ru" className="bg-zinc-900">Русский</option>
+                    </select>
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">RPG Mavzusi</label>
+                <div className="relative">
+                  <select 
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500/50 transition-all appearance-none text-sm font-bold"
+                  >
+                    <option value="Cyberpunk" className="bg-zinc-900">Cyberpunk (Neon)</option>
+                    <option value="Fantasy" className="bg-zinc-900">Fantasy (Oltin)</option>
+                    <option value="Minimal" className="bg-zinc-900">Minimal (Slate)</option>
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-6 space-y-4 border-t border-white/5">
           <button 
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+            className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {saving ? 'Saqlanmoqda...' : 'O\'zgarishlarni saqlash'}
+            {saving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                Saqlanmoqda...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-5 h-5" />
+                O'zgarishlarni saqlash
+              </>
+            )}
           </button>
           
           <div className="grid grid-cols-2 gap-3">
             <button 
               onClick={exportData}
-              className="py-3 bg-accent/50 border border-border rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-accent transition-all flex items-center justify-center gap-2"
+              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-4 h-4 text-cyan-500" />
               Eksport
             </button>
             <button 
               onClick={() => alert('Parolni o\'zgartirish... (Tez orada)')}
-              className="py-3 bg-accent/50 border border-border rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-accent transition-all flex items-center justify-center gap-2"
+              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
             >
-              <Lock className="w-4 h-4" />
+              <Lock className="w-4 h-4 text-purple-500" />
               Xavfsizlik
             </button>
           </div>
 
           <button 
             onClick={() => signOut(auth)}
-            className="w-full py-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-500 font-black uppercase tracking-widest hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 bg-red-500/5 border border-red-500/20 rounded-2xl text-red-500 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/10 hover:border-red-500/40 transition-all flex items-center justify-center gap-2"
           >
-            <LogOut className="w-5 h-5" />
-            Chiqish
+            <LogOut className="w-4 h-4" />
+            Tizimdan chiqish
           </button>
         </div>
       </div>
 
       {/* Social Links */}
-      <div className="rpg-card p-6 rounded-3xl space-y-4">
-        <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Biz bilan bog'laning</h4>
-        <div className="flex justify-around">
-          <button className="p-3 bg-accent/50 rounded-2xl hover:text-cyan-500 transition-all"><Mail className="w-6 h-6" /></button>
-          <button className="p-3 bg-accent/50 rounded-2xl hover:text-cyan-500 transition-all"><Share2 className="w-6 h-6" /></button>
-          <button className="p-3 bg-accent/50 rounded-2xl hover:text-cyan-500 transition-all"><Shield className="w-6 h-6" /></button>
+      <div className="rpg-card p-6 rounded-3xl space-y-4 bg-gradient-to-b from-transparent to-cyan-500/5">
+        <div className="flex items-center justify-between">
+          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Hamjamiyat</h4>
+          <div className="flex gap-2">
+            <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
+            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse delay-75"></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-cyan-500/10 hover:text-cyan-500 transition-all border border-white/5">
+            <Mail className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Email</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-purple-500/10 hover:text-purple-500 transition-all border border-white/5">
+            <Share2 className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Ulashish</span>
+          </button>
+          <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-emerald-500/10 hover:text-emerald-500 transition-all border border-white/5">
+            <Shield className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Yordam</span>
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function TransactionModal({ onClose, uid }: { onClose: () => void, uid: string }) {
-  const [type, setType] = useState<'expense' | 'income'>('expense');
-  const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid: string, editData?: Transaction | null }) {
+  const [type, setType] = useState<'expense' | 'income'>(editData?.type || 'expense');
+  const [amount, setAmount] = useState(editData?.amount?.toString() || '');
+  const [category, setCategory] = useState(editData?.category || EXPENSE_CATEGORIES[0]);
   const [customCategory, setCustomCategory] = useState('');
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [note, setNote] = useState('');
+  const [date, setDate] = useState(editData?.date ? format(editData.date instanceof Timestamp ? editData.date.toDate() : new Date(editData.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
+  const [note, setNote] = useState(editData?.note || '');
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0) return;
     setLoading(true);
     try {
-      await addDoc(collection(db, 'transactions'), {
+      const data = {
         uid,
         type,
         amount: Number(amount),
         category: category === 'Others' ? customCategory || 'Others' : category,
         date: Timestamp.fromDate(new Date(date)),
         note,
-        createdAt: serverTimestamp()
-      });
+        updatedAt: serverTimestamp()
+      };
+
+      if (editData) {
+        await updateDoc(doc(db, 'transactions', editData.id), data);
+      } else {
+        await addDoc(collection(db, 'transactions'), {
+          ...data,
+          createdAt: serverTimestamp()
+        });
+        // XP reward for adding transaction
+        await updateDoc(doc(db, 'users', uid), {
+          xp: increment(20)
+        });
+      }
       onClose();
     } catch (err) {
       console.error(err);
@@ -1534,11 +2667,26 @@ function TransactionModal({ onClose, uid }: { onClose: () => void, uid: string }
     }
   };
 
+  const handleDelete = async () => {
+    if (!editData) return;
+    if (!window.confirm('Haqiqatdan ham ushbu tranzaksiyani o\'chirmoqchimisiz?')) return;
+    
+    setDeleting(true);
+    try {
+      await deleteDoc(doc(db, 'transactions', editData.id));
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-[100] flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="w-full bg-background border border-border rounded-t-[32px] p-8 shadow-2xl animate-in slide-in-from-bottom-full duration-500">
+      <div className="w-full bg-background border border-border rounded-t-[32px] p-8 shadow-2xl animate-in slide-in-from-bottom-full duration-500 max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div className="flex items-center justify-between mb-8">
-          <h3 className="text-2xl font-black italic">Tranzaksiya qo'shish</h3>
+          <h3 className="text-2xl font-black italic">{editData ? 'Tahrirlash' : 'Tranzaksiya qo\'shish'}</h3>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-full transition-colors">
             <X className="w-6 h-6" />
           </button>
@@ -1584,15 +2732,20 @@ function TransactionModal({ onClose, uid }: { onClose: () => void, uid: string }
 
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Kategoriya</label>
-              <select 
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none"
-              >
-                {(type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <select 
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full bg-accent/50 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all appearance-none text-sm font-bold"
+                >
+                  {(type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map(cat => (
+                    <option key={cat} value={cat} className="bg-zinc-900">{cat}</option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
+              </div>
             </div>
 
             {category === 'Boshqa' && (
@@ -1632,13 +2785,27 @@ function TransactionModal({ onClose, uid }: { onClose: () => void, uid: string }
             </div>
           </div>
 
-          <button 
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
-          >
-            {loading ? 'Qo\'shilmoqda...' : 'Tranzaksiya qo\'shish'}
-          </button>
+          <div className="space-y-3">
+            <button 
+              type="submit"
+              disabled={loading || deleting}
+              className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Saqlanmoqda...' : editData ? 'O\'zgarishlarni saqlash' : 'Tranzaksiya qo\'shish'}
+            </button>
+
+            {editData && (
+              <button 
+                type="button"
+                onClick={handleDelete}
+                disabled={loading || deleting}
+                className="w-full py-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 font-black uppercase tracking-widest hover:bg-red-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleting ? 'O\'chirilmoqda...' : 'Tranzaksiyani o\'chirish'}
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </div>

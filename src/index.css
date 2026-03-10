@@ -81,6 +81,15 @@
   input, textarea, select {
     user-select: text;
   }
+
+  select option {
+    background-color: #09090b;
+    color: #ffffff;
+  }
+
+  input[type="date"] {
+    color-scheme: dark;
+  }
 }
 
 @layer utilities {
