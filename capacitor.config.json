@@ -1,0 +1,6 @@
+{
+  "appId": "com.moneyday.app",
+  "appName": "MoneyDay",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

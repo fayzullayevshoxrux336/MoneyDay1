@@ -1705,8 +1705,8 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
               </div>
             </div>
           </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[300px] w-full min-h-[300px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
@@ -1753,10 +1753,10 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
         <div className="rpg-card p-6 rounded-3xl flex flex-col">
           <h4 className="font-black text-xs uppercase tracking-widest mb-8 text-muted-foreground">Kategoriyalar</h4>
           <div className="flex-1 flex flex-col justify-center">
-            <div className="h-[220px] w-full relative">
+            <div className="h-[220px] w-full relative min-h-[220px]">
               {categoryData.length > 0 ? (
                 <>
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <PieChart>
                       <Pie
                         data={categoryData}
