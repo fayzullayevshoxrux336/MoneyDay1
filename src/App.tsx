@@ -61,7 +61,9 @@ import {
   ChevronDown,
   ShieldCheck,
   ShoppingBag,
-  Package
+  Package,
+  HelpCircle,
+  BookOpen
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -129,10 +131,56 @@ interface Transaction {
   createdAt: any;
 }
 
+interface GlossaryTerm {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+}
+
 // --- Constants ---
 const EXPENSE_CATEGORIES = ['Ovqat', 'Transport', 'Internet', 'O\'yinlar', 'Boshqa'];
 const INCOME_CATEGORIES = ['Oylik', 'Sovg\'a', 'Bonus', 'Boshqa'];
 const COLORS = ['#00FFFF', '#FF00FF', '#00FF00', '#FFFF00', '#FF8042'];
+
+const GLOSSARY: Record<string, GlossaryTerm> = {
+  balance: {
+    id: 'balance',
+    title: 'Balans',
+    description: 'Sizning jami mavjud mablag\'ingiz. Bu sizning RPG olamidagi "Oltinlaringiz" hisoblanadi. Kirim va chiqimlar asosida o\'zgarib turadi.',
+    icon: <Wallet className="w-6 h-6 text-cyan-500" />
+  },
+  hp: {
+    id: 'hp',
+    title: 'Byudjet HP',
+    description: 'Sizning moliyaviy sog\'lig\'ingiz. Agar oylik xarajatlaringiz belgilangan byudjetdan oshsa, HP kamayadi. HP 0 bo\'lsa, siz "bankrot" holatiga yaqinlashasiz.',
+    icon: <Activity className="w-6 h-6 text-pink-500" />
+  },
+  xp: {
+    id: 'xp',
+    title: 'XP va Daraja',
+    description: 'Tranzaksiyalarni qayd etish, maqsadlarga erishish va streaklarni saqlash orqali tajriba (XP) to\'playsiz. XP yetarli bo\'lganda darajangiz (Level) oshadi.',
+    icon: <Sparkles className="w-6 h-6 text-yellow-500" />
+  },
+  streak: {
+    id: 'streak',
+    title: 'Kunlik Streak',
+    description: 'Ketma-ket necha kun davomida ilovadan foydalanib, moliyaingizni nazorat qilayotganingizni ko\'rsatadi. Streak qancha uzoq bo\'lsa, intizomingiz shuncha yuqori.',
+    icon: <Zap className="w-6 h-6 text-orange-500" />
+  },
+  safety: {
+    id: 'safety',
+    title: 'Xavfsizlik Skori',
+    description: 'AI tomonidan hisoblangan ko\'rsatkich. Hozirgi sarflash tezligingiz bilan oy oxirigacha pulingiz yetish ehtimolini foizda ko\'rsatadi.',
+    icon: <ShieldCheck className="w-6 h-6 text-emerald-500" />
+  },
+  goal: {
+    id: 'goal',
+    title: 'Sarmoya Maqsadi',
+    description: "Siz erishmoqchi bo'lgan moliyaviy cho'qqi. Maqsad sari har bir qadamingiz foizlarda aks etadi.",
+    icon: <Target className="w-6 h-6 text-cyan-500" />
+  }
+};
 
 // --- Components ---
 
@@ -190,6 +238,7 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showGlossary, setShowGlossary] = useState<string | null>(null);
 
   // Auth Listener
   useEffect(() => {
@@ -394,12 +443,15 @@ export default function App() {
       <div className="h-[100dvh] bg-zinc-950 flex justify-center overflow-hidden">
         <div className="w-full max-w-md bg-background text-foreground h-full relative shadow-2xl shadow-black/50 flex flex-col">
           {/* Header */}
-          <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between shrink-0">
+          <header 
+            className="sticky top-0 z-40 bg-background/80 backdrop-blur-md border-b border-border p-4 flex items-center justify-between shrink-0"
+            style={{ paddingTop: 'calc(1rem + var(--sat, 0px))' }}
+          >
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rpg-gradient rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/20">
               <Wallet className="text-white w-6 h-6" />
             </div>
-            <h1 className="text-xl font-black tracking-tighter italic">MoneyDay</h1>
+            <h1 className="text-xl font-bold tracking-tight">MoneyDay</h1>
           </div>
           <div className="flex items-center gap-3">
             <button 
@@ -420,7 +472,10 @@ export default function App() {
           </div>
         </header>
 
-          <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-32 custom-scrollbar">
+          <main 
+            className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar"
+            style={{ paddingBottom: 'calc(8rem + var(--sab, 0px))' }}
+          >
           {activeTab === 'dashboard' && (
             <Dashboard 
               profile={profile} 
@@ -440,6 +495,7 @@ export default function App() {
                   updateDoc(doc(db, 'users', user.uid), { wishlist });
                 }
               }}
+              setShowGlossary={setShowGlossary}
             />
           )}
           {activeTab === 'stats' && <Statistics transactions={transactions} profile={profile} />}
@@ -455,12 +511,16 @@ export default function App() {
               user={user} 
               transactions={transactions} 
               setNotifications={setNotifications}
+              setShowGlossary={setShowGlossary}
             />
           )}
         </main>
 
           {/* Navigation */}
-          <nav className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-lg border-t border-border p-4 flex justify-around items-center z-50">
+          <nav 
+            className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-lg border-t border-border p-4 flex justify-around items-center z-50"
+            style={{ paddingBottom: 'calc(1rem + var(--sab, 0px))' }}
+          >
           <NavButton 
             active={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')}
@@ -500,6 +560,31 @@ export default function App() {
           />
         </nav>
 
+          {/* Glossary Modal */}
+          {showGlossary && GLOSSARY[showGlossary] && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="rpg-card w-full max-w-xs p-6 rounded-3xl border-cyan-500/30 shadow-2xl animate-in zoom-in-95 duration-300">
+                <div className="flex flex-col items-center text-center space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 shadow-lg shadow-cyan-500/10">
+                    {GLOSSARY[showGlossary].icon}
+                  </div>
+                  <div className="space-y-2">
+                    <h4 className="text-xl font-bold tracking-tight">{GLOSSARY[showGlossary].title}</h4>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {GLOSSARY[showGlossary].description}
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => setShowGlossary(null)}
+                    className="w-full py-3 bg-cyan-500 text-white rounded-xl text-xs font-bold uppercase tracking-widest shadow-lg shadow-cyan-500/20 hover:bg-cyan-600 transition-colors"
+                  >
+                    Tushunarli
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Add/Edit Transaction Modal */}
           {(showAddModal || editingTransaction) && (
             <TransactionModal 
@@ -532,7 +617,7 @@ function NavButton({ active, onClick, icon, label, badge }: { active: boolean, o
         {icon}
       </div>
       {badge ? (
-        <div className="absolute -top-1 -right-1 w-4 h-4 bg-pink-500 rounded-full text-[8px] font-black text-white flex items-center justify-center border border-background">
+        <div className="absolute -top-1 -right-1 w-4 h-4 bg-pink-500 rounded-full text-[8px] font-bold text-white flex items-center justify-center border border-background">
           {badge}
         </div>
       ) : null}
@@ -591,7 +676,10 @@ function AuthPage() {
 
   return (
     <div className="h-[100dvh] flex justify-center bg-zinc-950 overflow-hidden">
-      <div className="w-full max-w-md bg-black text-foreground h-full relative shadow-2xl shadow-black/50 flex flex-col items-center justify-center p-6 overflow-hidden">
+      <div 
+        className="w-full max-w-md bg-black text-foreground h-full relative shadow-2xl shadow-black/50 flex flex-col items-center justify-center p-6 overflow-hidden"
+        style={{ paddingTop: 'var(--sat, 0px)', paddingBottom: 'var(--sab, 0px)' }}
+      >
         {/* Background Glows */}
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-cyan-500/20 blur-[120px] rounded-full"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/20 blur-[120px] rounded-full"></div>
@@ -601,7 +689,7 @@ function AuthPage() {
             <div className="w-20 h-20 rpg-gradient rounded-3xl mx-auto flex items-center justify-center shadow-2xl shadow-purple-500/40 mb-4 animate-bounce">
               <Wallet className="text-white w-10 h-10" />
             </div>
-            <h1 className="text-4xl font-black italic tracking-tighter text-white">MoneyDay</h1>
+            <h1 className="text-4xl font-bold tracking-tight text-white">MoneyDay</h1>
             <p className="text-gray-400 mt-2">Sizning RPG uslubidagi moliyaviy sayohatingiz boshlanadi</p>
           </div>
 
@@ -647,7 +735,7 @@ function AuthPage() {
           <button 
             type="submit"
             disabled={loading}
-            className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+            className="w-full py-4 rpg-gradient rounded-2xl text-white font-bold uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? 'Jarayon...' : isLogin ? 'Dunyoga kirish' : 'Qahramon yaratish'}
           </button>
@@ -682,7 +770,8 @@ function Dashboard({
   filterMonth,
   setFilterMonth,
   onEditTransaction,
-  onUpdateWishlist
+  onUpdateWishlist,
+  setShowGlossary
 }: { 
   profile: UserProfile | null, 
   transactions: Transaction[],
@@ -696,7 +785,8 @@ function Dashboard({
   filterMonth: string,
   setFilterMonth: (m: string) => void,
   onEditTransaction: (tx: Transaction) => void,
-  onUpdateWishlist: (wishlist: any[]) => void
+  onUpdateWishlist: (wishlist: any[]) => void,
+  setShowGlossary: (term: string | null) => void
 }) {
   const [showShopModal, setShowShopModal] = useState(false);
   const [newItemName, setNewItemName] = useState('');
@@ -878,19 +968,22 @@ function Dashboard({
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Welcome */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-black italic">Salom, {profile?.name}!</h2>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-muted-foreground text-sm">Moliyaviy holatingiz a'lo darajada.</p>
-            <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/20">
-              <Zap className="w-3 h-3 text-orange-500" />
-              <span className="text-[10px] font-black text-orange-500">{streak} KUNLIK STREAK</span>
-            </div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">Salom, {profile?.name}!</h2>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <p className="text-muted-foreground text-xs sm:text-sm">Sarguzasht davom etmoqda.</p>
+            <button 
+              onClick={() => setShowGlossary('streak')}
+              className="flex items-center gap-1.5 bg-orange-500/20 px-2.5 py-1 rounded-full border border-orange-500/30 whitespace-nowrap shadow-[0_0_10px_rgba(249,115,22,0.1)] hover:scale-105 transition-transform"
+            >
+              <Zap className="w-3 h-3 text-orange-400 animate-pulse" />
+              <span className="text-[9px] font-bold text-orange-400 uppercase tracking-wider">{streak} KUNLIK STREAK</span>
+            </button>
           </div>
         </div>
         <div className={cn(
-          "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg border-2 border-background overflow-hidden",
+          "flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold shadow-lg border-2 border-background overflow-hidden",
           !profile?.photoURL && (profile?.avatarColor?.startsWith('from-') ? `bg-gradient-to-br ${profile.avatarColor}` : (profile?.avatarColor || 'bg-cyan-500'))
         )}>
           {profile?.photoURL ? (
@@ -902,103 +995,98 @@ function Dashboard({
       </div>
 
       {/* Main Balance Card */}
-      <div className="rpg-gradient p-6 rounded-3xl text-white shadow-2xl shadow-purple-500/30 relative overflow-hidden border border-white/10">
-        <div className="absolute top-[-20%] right-[-10%] w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+      <div className="rpg-gradient p-6 rounded-2xl text-white shadow-xl relative overflow-hidden">
         <div className="relative z-10">
-          <div className="flex justify-between items-start">
-            <div>
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-80">Umumiy balans</p>
-                <span className={cn("text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/10 border border-white/10", rank.color)}>
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Balans</p>
+                <button onClick={() => setShowGlossary('balance')} className="opacity-40 hover:opacity-100 transition-opacity">
+                  <HelpCircle className="w-3 h-3" />
+                </button>
+              </div>
+              <h3 className="text-2xl sm:text-3xl font-bold mt-1 tracking-tight truncate">{formatCurrency(balance, profile?.currency)}</h3>
+              <div className="mt-2">
+                <span className={cn("text-[8px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full bg-white/20 border border-white/10 inline-block", rank.color)}>
                   {rank.name}
                 </span>
               </div>
-              <h3 className="text-4xl font-black mt-1">{formatCurrency(balance, profile?.currency)}</h3>
             </div>
-            <div className="text-right">
-              <div className="inline-flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg border border-white/10">
+            <div className="flex flex-col items-start sm:items-end gap-2">
+              <button 
+                onClick={() => setShowGlossary('xp')}
+                className="inline-flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg border border-white/10 hover:bg-white/20 transition-colors"
+              >
                 <Award className="w-3 h-3 text-yellow-400" />
-                <span className="text-[10px] font-black uppercase tracking-widest">LVL {level}</span>
-              </div>
-              <div className="mt-2 w-24 h-1.5 bg-white/10 rounded-full overflow-hidden border border-white/5">
+                <span className="text-[10px] font-bold">LVL {level}</span>
+              </button>
+              <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000" 
+                  className="h-full bg-cyan-400 transition-all duration-1000" 
                   style={{ width: `${xpProgress}%` }}
                 ></div>
               </div>
-              <p className="text-[8px] font-bold uppercase tracking-widest mt-1 opacity-60">{xp} / {nextLevelXp} XP</p>
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-4 mt-8">
-            <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-inner">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Bugungi daromad</span>
-              </div>
-              <p className="font-bold">{formatCurrency(todayIncome, profile?.currency)}</p>
+          <div className="grid grid-cols-2 gap-3 mt-6">
+            <div className="bg-white/10 backdrop-blur-sm p-3 rounded-xl border border-white/10">
+              <p className="text-[8px] font-bold uppercase tracking-widest opacity-70 mb-1">Kirim</p>
+              <p className="text-sm font-bold">{formatCurrency(todayIncome, profile?.currency)}</p>
             </div>
-            <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 shadow-inner">
-              <div className="flex items-center gap-2 mb-1">
-                <TrendingDown className="w-4 h-4 text-pink-400" />
-                <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Bugungi xarajat</span>
-              </div>
-              <p className="font-bold">{formatCurrency(todayExpense, profile?.currency)}</p>
+            <div className="bg-white/10 backdrop-blur-sm p-3 rounded-xl border border-white/10">
+              <p className="text-[8px] font-bold uppercase tracking-widest opacity-70 mb-1">Chiqim</p>
+              <p className="text-sm font-bold">{formatCurrency(todayExpense, profile?.currency)}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Adventure Status (HP & Goals) */}
-      <div className="grid grid-cols-1 gap-4">
+      <div className="space-y-4">
         {/* Budget HP Bar */}
-        <div className="rpg-card p-5 rounded-3xl border-pink-500/20">
-          <div className="flex items-center justify-between mb-3">
+        <div className="rpg-card p-4 rounded-2xl border-pink-500/10">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-pink-500" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Byudjet Sog'lig'i (HP)</span>
+              <Activity className="w-3 h-3 text-pink-500" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">HP</span>
+              <button onClick={() => setShowGlossary('hp')} className="opacity-40 hover:opacity-100 transition-opacity">
+                <HelpCircle className="w-3 h-3" />
+              </button>
             </div>
-            <span className={cn("text-[10px] font-black", budgetHP < 20 ? "text-red-500 animate-pulse" : "text-pink-500")}>
-              {budgetHP}% HP
+            <span className={cn("text-[10px] font-bold", budgetHP < 20 ? "text-red-500" : "text-pink-500")}>
+              {budgetHP}%
             </span>
           </div>
-          <div className="h-3 bg-accent rounded-full overflow-hidden border border-white/5">
+          <div className="h-2 bg-accent rounded-full overflow-hidden">
             <div 
               className={cn(
-                "h-full transition-all duration-1000 shadow-[0_0_10px_rgba(236,72,153,0.3)]",
+                "h-full transition-all duration-1000",
                 budgetHP > 50 ? "bg-emerald-500" : budgetHP > 20 ? "bg-yellow-500" : "bg-red-500"
               )}
               style={{ width: `${budgetHP}%` }}
             ></div>
           </div>
-          <p className="text-[8px] text-muted-foreground mt-2 uppercase tracking-widest font-bold opacity-60">
-            {budgetHP < 20 ? "DIQQAT: SIZNING OLTINLARINGIZ TUGAMOQDA!" : "SIZNING BYUDJETINGIZ SOG'LOM"}
-          </p>
         </div>
 
         {/* Savings Goal */}
         {profile?.savingsGoal && (
-          <div className="rpg-card p-5 rounded-3xl border-cyan-500/20">
-            <div className="flex items-center justify-between mb-3">
+          <div className="rpg-card p-4 rounded-2xl border-cyan-500/10">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-cyan-500" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Maqsad: {profile.savingsGoal}</span>
+                <Target className="w-3 h-3 text-cyan-500" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate max-w-[120px]">{profile.savingsGoal}</span>
+                <button onClick={() => setShowGlossary('goal')} className="opacity-40 hover:opacity-100 transition-opacity">
+                  <HelpCircle className="w-3 h-3" />
+                </button>
               </div>
-              <span className="text-[10px] font-black text-cyan-500">{savingsGoalProgress}%</span>
+              <span className="text-[10px] font-bold text-cyan-500">{savingsGoalProgress}%</span>
             </div>
-            <div className="h-3 bg-accent rounded-full overflow-hidden border border-white/5">
+            <div className="h-2 bg-accent rounded-full overflow-hidden">
               <div 
-                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-all duration-1000"
+                className="h-full bg-cyan-500 transition-all duration-1000"
                 style={{ width: `${savingsGoalProgress}%` }}
               ></div>
-            </div>
-            <div className="flex justify-between mt-2">
-              <p className="text-[8px] text-muted-foreground uppercase tracking-widest font-bold opacity-60">
-                {formatCurrency(balance, profile.currency)} yig'ildi
-              </p>
-              <p className="text-[8px] text-muted-foreground uppercase tracking-widest font-bold opacity-60">
-                Maqsad: {formatCurrency(profile.savingsGoalAmount || 0, profile.currency)}
-              </p>
             </div>
           </div>
         )}
@@ -1026,43 +1114,46 @@ function Dashboard({
           <Sparkles className="w-12 h-12 text-blue-500" />
         </div>
         <div className="relative z-10 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4 text-blue-500" />
               </div>
               <div>
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Moliyaviy Bashorat</h4>
-                <p className="text-[8px] text-blue-500 font-bold uppercase tracking-tighter">Oy oxirigacha kutilayotgan holat</p>
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Moliyaviy Bashorat</h4>
+                <p className="text-[8px] text-blue-500 font-bold uppercase tracking-tight">Oy oxirigacha kutilayotgan holat</p>
               </div>
             </div>
-            <div className="text-right">
-              <span className={cn(
-                "text-[10px] font-black px-2 py-0.5 rounded-full border",
-                forecast.safetyScore > 70 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" :
-                forecast.safetyScore > 40 ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-500" :
-                "bg-red-500/10 border-red-500/20 text-red-500"
-              )}>
+            <div className="flex flex-col items-end gap-1">
+              <button 
+                onClick={() => setShowGlossary('safety')}
+                className={cn(
+                  "text-[9px] font-bold px-2 py-1 rounded-full border whitespace-nowrap hover:scale-105 transition-transform",
+                  forecast.safetyScore > 70 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" :
+                  forecast.safetyScore > 40 ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-500" :
+                  "bg-red-500/10 border-red-500/20 text-red-500"
+                )}
+              >
                 XAVFSIZLIK: {forecast.safetyScore}%
-              </span>
+              </button>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Kutilayotgan xarajat</p>
-              <p className="text-sm font-black text-blue-400">{formatCurrency(forecast.projectedExpense, profile?.currency)}</p>
+              <p className="text-sm font-bold text-blue-400">{formatCurrency(forecast.projectedExpense, profile?.currency)}</p>
             </div>
             <div className="space-y-1">
               <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Kutilayotgan jamg'arma</p>
-              <p className={cn("text-sm font-black", forecast.projectedSavings >= 0 ? "text-emerald-400" : "text-red-400")}>
+              <p className={cn("text-sm font-bold", forecast.projectedSavings >= 0 ? "text-emerald-400" : "text-red-400")}>
                 {formatCurrency(forecast.projectedSavings, profile?.currency)}
               </p>
             </div>
           </div>
 
           <div className="pt-2 border-t border-white/5">
-            <p className="text-[9px] text-muted-foreground leading-relaxed italic">
+            <p className="text-[9px] text-muted-foreground leading-relaxed">
               {forecast.safetyScore > 70 
                 ? "Siz juda tejamkorsiz! Oy oxirigacha byudjetingiz bemalol yetadi." 
                 : forecast.safetyScore > 40 
@@ -1079,7 +1170,7 @@ function Dashboard({
           <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Yutuqlar</h4>
           <button onClick={() => {/* Navigate to profile achievements */}} className="text-[10px] font-bold text-cyan-500 hover:underline">Hammasi</button>
         </div>
-        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+        <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar -mx-4 px-4">
           {[
             { name: 'Tejamkor', icon: '🛡️', unlocked: budgetHP > 50, desc: 'Byudjet 50% dan yuqori' },
             { name: 'Boyvachcha', icon: '💰', unlocked: balance > 1000000, desc: '1 mln balans' },
@@ -1089,37 +1180,62 @@ function Dashboard({
             <div 
               key={i}
               className={cn(
-                "flex-shrink-0 w-32 p-3 rounded-2xl border transition-all",
+                "flex-shrink-0 w-36 p-4 rounded-2xl border transition-all",
                 ach.unlocked 
-                  ? "bg-emerald-500/5 border-emerald-500/20 opacity-100" 
+                  ? "bg-emerald-500/5 border-emerald-500/20 opacity-100 shadow-[0_0_15px_rgba(16,185,129,0.05)]" 
                   : "bg-accent/50 border-border opacity-40 grayscale"
               )}
             >
               <div className="text-2xl mb-2">{ach.icon}</div>
-              <p className="text-[10px] font-black uppercase tracking-tight truncate">{ach.name}</p>
-              <p className="text-[8px] text-muted-foreground leading-tight mt-1">{ach.desc}</p>
+              <p className="text-[10px] font-bold uppercase tracking-tight truncate">{ach.name}</p>
+              <p className="text-[8px] text-muted-foreground leading-tight mt-1 line-clamp-2">{ach.desc}</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Equipment Shop (Wishlist) */}
+      {/* Knowledge Book (Glossary) */}
       <div className="space-y-4">
         <div className="flex items-center justify-between px-1">
+          <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Bilimlar Kitobi</h4>
+          <BookOpen className="w-3 h-3 text-muted-foreground opacity-50" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {Object.values(GLOSSARY).slice(0, 4).map((term) => (
+            <button 
+              key={term.id}
+              onClick={() => setShowGlossary(term.id)}
+              className="rpg-card p-3 rounded-2xl border-white/5 hover:border-cyan-500/30 transition-all flex items-center gap-3 text-left group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 group-hover:scale-110 transition-transform [&_svg]:w-4 [&_svg]:h-4 [&_svg]:text-cyan-500">
+                {term.icon}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-tight truncate">{term.title}</p>
+                <p className="text-[8px] text-muted-foreground uppercase tracking-widest">Tarif</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Equipment Shop (Wishlist) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <ShoppingBag className="w-4 h-4 text-purple-500" />
-            <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Anjomlar Do'koni (Wishlist)</h4>
+            <ShoppingBag className="w-3 h-3 text-purple-500" />
+            <h4 className="font-bold uppercase tracking-widest text-[9px] text-muted-foreground">Anjomlar Do'koni</h4>
           </div>
           <button 
             onClick={() => setShowShopModal(true)}
-            className="flex items-center gap-1 text-[10px] font-black text-purple-500 hover:text-purple-400 transition-colors"
+            className="flex items-center gap-1 text-[9px] font-bold text-purple-500 hover:text-purple-400"
           >
-            <PlusCircle className="w-3 h-3" />
-            ANJOM QO'SHISH
+            <PlusCircle className="w-2.5 h-2.5" />
+            QO'SHISH
           </button>
         </div>
         
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-2">
           {profile?.wishlist && profile.wishlist.length > 0 ? (
             profile.wishlist.map((item) => {
               const remaining = Math.max(0, item.price - balance);
@@ -1127,14 +1243,14 @@ function Dashboard({
               const progress = Math.min(100, Math.round((balance / item.price) * 100));
               
               return (
-                <div key={item.id} className="rpg-card p-4 rounded-2xl border-purple-500/20 relative overflow-hidden group">
-                  <div className="flex items-center gap-4 relative z-10">
-                    <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center text-2xl shadow-inner">
+                <div key={item.id} className="rpg-card p-3 rounded-xl border-purple-500/10 relative group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center text-xl">
                       {item.icon}
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start">
-                        <h5 className="text-xs font-black uppercase tracking-widest">{item.name}</h5>
+                        <h5 className="text-[10px] font-bold uppercase tracking-widest truncate">{item.name}</h5>
                         <button 
                           onClick={() => {
                             const newWishlist = profile.wishlist?.filter(w => w.id !== item.id) || [];
@@ -1146,16 +1262,16 @@ function Dashboard({
                         </button>
                       </div>
                       <div className="flex justify-between items-center mt-1">
-                        <p className="text-sm font-black text-purple-400">{formatCurrency(item.price, profile.currency)}</p>
-                        <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">
-                          {remaining > 0 ? `${daysToReach} kundan keyin` : "Sotib olish mumkin!"}
+                        <p className="text-xs font-bold text-purple-400">{formatCurrency(item.price, profile.currency)}</p>
+                        <p className="text-[7px] font-bold uppercase tracking-widest text-muted-foreground">
+                          {remaining > 0 ? `${daysToReach} kun` : "Tayyor!"}
                         </p>
                       </div>
-                      <div className="mt-2 h-1.5 bg-accent rounded-full overflow-hidden">
+                      <div className="mt-1.5 h-1 bg-accent rounded-full overflow-hidden">
                         <div 
                           className={cn(
                             "h-full transition-all duration-1000",
-                            progress === 100 ? "bg-emerald-500 shadow-[0_0_10px_#10b981]" : "bg-purple-500"
+                            progress === 100 ? "bg-emerald-500" : "bg-purple-500"
                           )}
                           style={{ width: `${progress}%` }}
                         ></div>
@@ -1166,15 +1282,9 @@ function Dashboard({
               );
             })
           ) : (
-            <div className="rpg-card p-8 rounded-2xl border-dashed border-white/10 flex flex-col items-center justify-center text-center space-y-2">
-              <Package className="w-8 h-8 text-muted-foreground/30" />
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">Hali anjomlar yo'q</p>
-              <button 
-                onClick={() => setShowShopModal(true)}
-                className="text-[10px] font-black text-purple-500 hover:underline"
-              >
-                BIRINCHISINI QO'SHING
-              </button>
+            <div className="rpg-card p-6 rounded-xl border-dashed border-white/10 flex flex-col items-center justify-center text-center space-y-1">
+              <Package className="w-6 h-6 text-muted-foreground/30" />
+              <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/50">Hali anjomlar yo'q</p>
             </div>
           )}
         </div>
@@ -1185,7 +1295,7 @@ function Dashboard({
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="rpg-card p-6 rounded-3xl border-purple-500/30 max-w-sm w-full space-y-6 animate-in zoom-in-95 duration-300">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-black uppercase tracking-widest">Yangi Anjom</h4>
+              <h4 className="text-sm font-bold uppercase tracking-widest">Yangi Anjom</h4>
               <button onClick={() => setShowShopModal(false)} className="text-muted-foreground hover:text-white">
                 <X className="w-5 h-5" />
               </button>
@@ -1246,7 +1356,7 @@ function Dashboard({
                 setNewItemName('');
                 setNewItemPrice('');
               }}
-              className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all"
+              className="w-full py-4 rpg-gradient rounded-2xl text-white font-bold uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all"
             >
               DO'KONGA QO'SHISH
             </button>
@@ -1255,9 +1365,9 @@ function Dashboard({
       )}
 
       {/* Quick Actions */}
-      <div className="space-y-4">
-        <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground px-1">Tezkor amallar</h4>
-        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+      <div className="space-y-3">
+        <h4 className="font-bold uppercase tracking-widest text-[9px] text-muted-foreground px-1">Tezkor amallar</h4>
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
           {[
             { label: 'Tushlik', cat: 'Ovqat', amount: 30000, icon: '🍔' },
             { label: 'Yo\'l kira', cat: 'Transport', amount: 2000, icon: '🚌' },
@@ -1277,7 +1387,6 @@ function Dashboard({
                     note: action.label,
                     createdAt: serverTimestamp()
                   });
-                  // XP qo'shish mantiqi (ixtiyoriy, lekin yaxshi bo'lardi)
                   if (profile) {
                     await updateDoc(doc(db, 'users', profile.uid), {
                       xp: (profile.xp || 0) + 20
@@ -1287,43 +1396,43 @@ function Dashboard({
                   console.error(err);
                 }
               }}
-              className="flex-shrink-0 rpg-card p-3 rounded-2xl flex flex-col items-center gap-2 min-w-[80px] hover:border-cyan-500/50 transition-all active:scale-95"
+              className="flex-shrink-0 rpg-card p-3 rounded-xl flex flex-col items-center gap-1 min-w-[75px] active:scale-95 transition-transform"
             >
-              <span className="text-xl">{action.icon}</span>
-              <span className="text-[9px] font-black uppercase tracking-widest">{action.label}</span>
+              <span className="text-lg">{action.icon}</span>
+              <span className="text-[8px] font-bold uppercase tracking-widest truncate w-full text-center">{action.label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Daily Quests */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h4 className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground">Kunlik Topshiriqlar</h4>
-          <span className="text-[10px] font-bold text-yellow-500">{quests.filter(q => q.done).length} / {quests.length}</span>
+          <h4 className="font-bold uppercase tracking-widest text-[9px] text-muted-foreground">Topshiriqlar</h4>
+          <span className="text-[9px] font-bold text-yellow-500">{quests.filter(q => q.done).length}/{quests.length}</span>
         </div>
-        <div className="grid grid-cols-1 gap-3">
+        <div className="grid grid-cols-1 gap-2">
           {quests.map(quest => (
             <div key={quest.id} className={cn(
-              "rpg-card p-4 rounded-2xl flex items-center gap-4 border transition-all",
-              quest.done ? "border-emerald-500/30 bg-emerald-500/5 opacity-70" : "border-white/5 hover:border-white/10"
+              "rpg-card p-3 rounded-xl flex items-center gap-3 border transition-all",
+              quest.done ? "border-emerald-500/20 bg-emerald-500/5 opacity-70" : "border-white/5"
             )}>
               <div className={cn(
-                "w-10 h-10 rounded-xl flex items-center justify-center shadow-lg",
-                quest.done ? "bg-emerald-500/20 text-emerald-500" : "bg-white/5 text-muted-foreground"
+                "w-8 h-8 rounded-lg flex items-center justify-center",
+                quest.done ? "bg-emerald-500/10 text-emerald-500" : "bg-white/5 text-muted-foreground"
               )}>
-                {quest.done ? <ShieldCheck className="w-5 h-5" /> : quest.icon}
+                {quest.done ? <ShieldCheck className="w-4 h-4" /> : quest.icon}
               </div>
               <div className="flex-1">
-                <h5 className={cn("text-xs font-black uppercase tracking-widest", quest.done ? "text-emerald-500" : "text-foreground")}>
+                <h5 className={cn("text-[10px] font-bold uppercase tracking-widest", quest.done ? "text-emerald-500" : "text-foreground")}>
                   {quest.title}
                 </h5>
-                <p className="text-[10px] text-muted-foreground font-medium">{quest.desc}</p>
+                <p className="text-[8px] text-muted-foreground">{quest.desc}</p>
               </div>
               {quest.done && (
-                <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  <Sparkles className="w-3 h-3 text-emerald-500" />
-                  <span className="text-[8px] font-black text-emerald-500">+50 XP</span>
+                <div className="flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                  <Sparkles className="w-2 h-2 text-emerald-500" />
+                  <span className="text-[7px] font-bold text-emerald-500">+50 XP</span>
                 </div>
               )}
             </div>
@@ -1356,7 +1465,7 @@ function Dashboard({
                 <select 
                   value={filterYear}
                   onChange={(e) => setFilterYear(e.target.value)}
-                  className="w-full bg-transparent text-[10px] font-black uppercase tracking-tighter focus:outline-none cursor-pointer appearance-none"
+                  className="w-full bg-transparent text-[10px] font-bold uppercase tracking-tighter focus:outline-none cursor-pointer appearance-none"
                 >
                   {years.map(y => <option key={y} value={y} className="bg-[#0a0a0a] text-white">{y}</option>)}
                 </select>
@@ -1369,7 +1478,7 @@ function Dashboard({
                 <select 
                   value={filterMonth}
                   onChange={(e) => setFilterMonth(e.target.value)}
-                  className="w-full bg-transparent text-[10px] font-black uppercase tracking-tighter focus:outline-none cursor-pointer appearance-none"
+                  className="w-full bg-transparent text-[10px] font-bold uppercase tracking-tighter focus:outline-none cursor-pointer appearance-none"
                 >
                   {months.map(m => <option key={m.v} value={m.v} className="bg-[#0a0a0a] text-white">{m.l}</option>)}
                 </select>
@@ -1407,18 +1516,18 @@ function Dashboard({
                   </div>
                   <div className="text-right">
                     <p className={cn(
-                      "font-black text-base",
+                      "font-bold text-base",
                       tx.type === 'income' ? "text-emerald-500" : "text-pink-500"
                     )}>
                       {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, profile?.currency)}
                     </p>
-                    {tx.note && <p className="text-[10px] text-muted-foreground truncate max-w-[120px] italic">{tx.note}</p>}
+                    {tx.note && <p className="text-[10px] text-muted-foreground truncate max-w-[120px]">{tx.note}</p>}
                   </div>
                 </div>
               ))
             ) : (
               <div className="text-center py-12 rpg-card rounded-3xl border border-dashed border-border/50">
-                <p className="italic text-sm text-muted-foreground">Ushbu vaqt oralig'ida ma'lumot topilmadi.</p>
+                <p className="text-sm text-muted-foreground">Ushbu vaqt oralig'ida ma'lumot topilmadi.</p>
               </div>
             )}
 
@@ -1426,7 +1535,7 @@ function Dashboard({
               <button 
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="w-full py-5 bg-gradient-to-b from-accent/20 to-accent/5 border border-cyan-500/30 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] text-cyan-500 hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(6,182,212,0.2)] transition-all active:scale-95 disabled:opacity-50"
+                className="w-full py-5 bg-gradient-to-b from-accent/20 to-accent/5 border border-cyan-500/30 rounded-2xl text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-500 hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(6,182,212,0.2)] transition-all active:scale-95 disabled:opacity-50"
               >
                 {loadingMore ? (
                   <span className="flex items-center justify-center gap-3">
@@ -1483,7 +1592,7 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
         <div className="w-8 h-8 bg-cyan-500/20 rounded-lg flex items-center justify-center">
           <Sparkles className="w-5 h-5 text-cyan-500" />
         </div>
-        <h4 className="font-black italic text-sm uppercase tracking-widest">AI Moliyaviy Bashorat</h4>
+        <h4 className="font-bold text-sm uppercase tracking-widest">AI Moliyaviy Bashorat</h4>
       </div>
 
       {loading ? (
@@ -1493,7 +1602,7 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
             <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-cyan-500 animate-bounce" />
           </div>
           <div className="space-y-2 text-center">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-500">Bashorat qilinmoqda</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-500">Bashorat qilinmoqda</p>
             <p className="text-[8px] text-muted-foreground uppercase tracking-widest">Oracle bilan bog'lanilmoqda...</p>
           </div>
         </div>
@@ -1505,25 +1614,25 @@ function AIAdvice({ transactions, profile }: { transactions: Transaction[], prof
                 <Zap className="w-3 h-3 text-white" />
               </div>
             </div>
-            <div className="text-sm text-foreground/90 leading-relaxed prose prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-cyan-400 prose-strong:font-black max-w-none">
+            <div className="text-sm text-foreground/90 leading-relaxed prose prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-strong:text-cyan-400 prose-strong:font-bold max-w-none">
               <ReactMarkdown>{advice}</ReactMarkdown>
             </div>
           </div>
           <button 
             onClick={() => setAdvice(null)}
-            className="mt-4 w-full py-2.5 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-cyan-500 hover:border-cyan-500/50 transition-all flex items-center justify-center gap-2"
+            className="mt-4 w-full py-2.5 bg-white/5 border border-white/10 rounded-xl text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-cyan-500 hover:border-cyan-500/50 transition-all flex items-center justify-center gap-2"
           >
             <X className="w-3 h-3" />
             Maslahatni yopish
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground italic flex-1">Moliyaviy strategiya kerakmi?</p>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <p className="text-xs text-muted-foreground flex-1">Moliyaviy strategiya kerakmi?</p>
           <button 
             onClick={getAdvice}
             disabled={loading}
-            className="px-6 py-3 rpg-gradient rounded-xl text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
+            className="w-full sm:w-auto px-6 py-3 rpg-gradient rounded-xl text-white text-[10px] font-bold uppercase tracking-widest shadow-lg shadow-purple-500/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <Sparkles className="w-3 h-3" />
             Oracle bilan bog'lanish
@@ -1637,7 +1746,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-black italic tracking-tight">Statistika</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Statistika</h2>
             <p className="text-muted-foreground text-xs uppercase tracking-widest font-bold opacity-70">Moliyaviy sarguzashtingiz tahlili</p>
           </div>
           <div className="p-1 bg-black/40 backdrop-blur-md rounded-xl border border-white/10 flex gap-1">
@@ -1646,7 +1755,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
                 key={tf}
                 onClick={() => setTimeframe(tf)}
                 className={cn(
-                  "px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                  "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
                   timeframe === tf 
                     ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20" 
                     : "text-muted-foreground hover:text-foreground"
@@ -1673,9 +1782,9 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-2">
                   <stat.icon className={cn("w-3 h-3", stat.color)} />
-                  <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{stat.label}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{stat.label}</span>
                 </div>
-                <div className={cn("text-lg font-black tracking-tight", stat.color)}>
+                <div className={cn("text-lg font-bold tracking-tight", stat.color)}>
                   {typeof stat.value === 'number' ? formatCurrency(stat.value, profile?.currency) : stat.value}
                 </div>
               </div>
@@ -1693,7 +1802,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
           </div>
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground mb-1">
+              <h4 className="font-bold text-xs uppercase tracking-widest text-muted-foreground mb-1">
                 Xarajatlar dinamikasi
               </h4>
               <p className="text-[10px] text-muted-foreground opacity-50">Vaqt davomidagi o'zgarishlar</p>
@@ -1701,7 +1810,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_8px_rgba(0,255,255,0.5)]"></div>
-                <span className="text-[9px] font-black uppercase tracking-widest opacity-70">Xarajat</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest opacity-70">Xarajat</span>
               </div>
             </div>
           </div>
@@ -1751,7 +1860,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
 
         {/* Category Breakdown */}
         <div className="rpg-card p-6 rounded-3xl flex flex-col">
-          <h4 className="font-black text-xs uppercase tracking-widest mb-8 text-muted-foreground">Kategoriyalar</h4>
+          <h4 className="font-bold text-xs uppercase tracking-widest mb-8 text-muted-foreground">Kategoriyalar</h4>
           <div className="flex-1 flex flex-col justify-center">
             <div className="h-[220px] w-full relative min-h-[220px]">
               {categoryData.length > 0 ? (
@@ -1784,14 +1893,14 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Jami</span>
-                    <span className="text-lg font-black">{formatCurrency(expense, profile?.currency)}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Jami</span>
+                    <span className="text-lg font-bold">{formatCurrency(expense, profile?.currency)}</span>
                   </div>
                 </>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center p-4">
                   <PieChartIcon className="w-12 h-12 text-muted-foreground/20 mb-2" />
-                  <p className="text-muted-foreground italic text-xs font-bold uppercase tracking-widest">Ma'lumot yo'q</p>
+                  <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">Ma'lumot yo'q</p>
                 </div>
               )}
             </div>
@@ -1801,10 +1910,10 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
                 <div key={cat.name} className="flex items-center justify-between group">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">{cat.name}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">{cat.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black text-foreground">{formatCurrency(cat.value, profile?.currency)}</span>
+                    <span className="text-[10px] font-bold text-foreground">{formatCurrency(cat.value, profile?.currency)}</span>
                     <span className="text-[9px] font-bold text-muted-foreground opacity-50">{Math.round((cat.value / expense) * 100)}%</span>
                   </div>
                 </div>
@@ -1818,18 +1927,18 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rpg-card p-6 rounded-3xl">
           <div className="flex items-center justify-between mb-6">
-            <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground">Eng katta xarajatlar</h4>
+            <h4 className="font-bold text-xs uppercase tracking-widest text-muted-foreground">Eng katta xarajatlar</h4>
             <ShieldCheck className="w-4 h-4 text-cyan-500 opacity-50" />
           </div>
           <div className="space-y-4">
             {topExpenses.length > 0 ? (
               topExpenses.map((tx, i) => (
                 <div key={tx.id} className="flex items-center gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
-                  <div className="w-10 h-10 rounded-xl bg-black/40 flex items-center justify-center text-lg font-black italic text-cyan-500 border border-white/5 group-hover:scale-110 transition-transform">
+                  <div className="w-10 h-10 rounded-xl bg-black/40 flex items-center justify-center text-lg font-bold text-cyan-500 border border-white/5 group-hover:scale-110 transition-transform">
                     {i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">
                       {tx.note || tx.category}
                     </p>
                     <p className="text-[9px] font-bold text-muted-foreground opacity-50">
@@ -1837,16 +1946,16 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-black text-rose-400">-{formatCurrency(tx.amount, profile?.currency)}</p>
+                    <p className="text-sm font-bold text-rose-400">-{formatCurrency(tx.amount, profile?.currency)}</p>
                     <div className="flex items-center justify-end gap-1">
                       <div className="w-1 h-1 rounded-full bg-rose-500"></div>
-                      <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Xarajat</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest opacity-50">Xarajat</span>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-center py-8 text-muted-foreground italic text-xs font-bold uppercase tracking-widest">Xarajatlar mavjud emas</p>
+              <p className="text-center py-8 text-muted-foreground text-xs font-bold uppercase tracking-widest">Xarajatlar mavjud emas</p>
             )}
           </div>
         </div>
@@ -1856,26 +1965,26 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
             <Zap className="w-48 h-48 text-cyan-500" />
           </div>
           <div className="relative z-10">
-            <h4 className="font-black text-xs uppercase tracking-widest text-muted-foreground mb-6">Kunlik o'rtacha tahlil</h4>
+            <h4 className="font-bold text-xs uppercase tracking-widest text-muted-foreground mb-6">Kunlik o'rtacha tahlil</h4>
             <div className="space-y-6">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">O'rtacha kunlik xarajat</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">O'rtacha kunlik xarajat</p>
                 <div className="flex items-end gap-2">
-                  <span className="text-3xl font-black tracking-tighter text-cyan-500">
+                  <span className="text-3xl font-bold tracking-tighter text-cyan-500">
                     {formatCurrency(Math.round(expense / (timeframe === 'daily' ? 1 : timeframe === 'weekly' ? 7 : timeframe === 'monthly' ? 30 : 365)), profile?.currency)}
                   </span>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 opacity-50">/ kun</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 opacity-50">/ kun</span>
                 </div>
               </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Tranzaksiyalar</p>
-                  <p className="text-xl font-black">{filteredTxs.length}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Tranzaksiyalar</p>
+                  <p className="text-xl font-bold">{filteredTxs.length}</p>
                 </div>
                 <div className="p-4 rounded-2xl bg-black/40 border border-white/5">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Eng faol kun</p>
-                  <p className="text-xl font-black">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Eng faol kun</p>
+                  <p className="text-xl font-bold">
                     {chartData.length > 0 ? chartData.reduce((prev, current) => (prev.amount > current.amount) ? prev : current).name : 'N/A'}
                   </p>
                 </div>
@@ -1888,7 +1997,7 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
                 <Zap className="w-4 h-4 text-cyan-500" />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-cyan-500 mb-1">Maslahat</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 mb-1">Maslahat</p>
                 <p className="text-[11px] font-bold text-muted-foreground leading-relaxed">
                   {savingsRate > 20 
                     ? "Ajoyib! Sizning jamg'arma darajangiz yuqori. Investitsiya haqida o'ylab ko'ring." 
@@ -1903,7 +2012,19 @@ function Statistics({ transactions, profile }: { transactions: Transaction[], pr
   );
 }
 
-function ProfilePage({ profile, user, transactions, setNotifications }: { profile: UserProfile | null, user: FirebaseUser, transactions: Transaction[], setNotifications: React.Dispatch<React.SetStateAction<Notification[]>> }) {
+function ProfilePage({ 
+  profile, 
+  user, 
+  transactions, 
+  setNotifications,
+  setShowGlossary
+}: { 
+  profile: UserProfile | null, 
+  user: FirebaseUser, 
+  transactions: Transaction[], 
+  setNotifications: React.Dispatch<React.SetStateAction<Notification[]>>,
+  setShowGlossary: (term: string | null) => void
+}) {
   const [name, setName] = useState(profile?.name || '');
   const [budget, setBudget] = useState(profile?.monthlyBudget || 1000000);
   const [currency, setCurrency] = useState(profile?.currency || 'UZS');
@@ -2117,7 +2238,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <div className="absolute top-4 right-4 flex gap-2">
             <div className="px-3 py-1 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
               <Trophy className="w-3 h-3 text-yellow-400" />
-              <span className="text-[8px] font-black uppercase tracking-widest text-white">Rank: {rank.name}</span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-white">Rank: {rank.name}</span>
             </div>
           </div>
         </div>
@@ -2133,7 +2254,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
             <div 
               onClick={() => fileInputRef.current?.click()}
               className={cn(
-                "w-24 h-24 rounded-3xl flex items-center justify-center text-white text-4xl font-black shadow-2xl border-4 border-background overflow-hidden transition-all cursor-pointer",
+                "w-24 h-24 rounded-3xl flex items-center justify-center text-white text-4xl font-bold shadow-2xl border-4 border-background overflow-hidden transition-all cursor-pointer",
                 !photoURL && (avatarColor.startsWith('from-') ? `bg-gradient-to-br ${avatarColor}` : avatarColor)
               )}
             >
@@ -2158,14 +2279,14 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
               </button>
             )}
             <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-background rounded-2xl border border-border flex items-center justify-center shadow-lg">
-              <span className="text-cyan-500 font-black text-sm">Lv.{level}</span>
+              <span className="text-cyan-500 font-bold text-sm">Lv.{level}</span>
             </div>
           </div>
           <div className="mb-2">
-            <h3 className="text-2xl font-black italic tracking-tighter">{name}</h3>
+            <h3 className="text-2xl font-bold tracking-tighter">{name}</h3>
             <div className="flex items-center gap-2">
               <Trophy className={cn("w-3 h-3", rank.color)} />
-              <p className={cn("text-[10px] font-black uppercase tracking-widest", rank.color)}>{rank.name}</p>
+              <p className={cn("text-[10px] font-bold uppercase tracking-widest", rank.color)}>{rank.name}</p>
             </div>
           </div>
         </div>
@@ -2176,9 +2297,9 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-yellow-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tajriba (XP)</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tajriba (XP)</span>
           </div>
-          <span className="text-[10px] font-black text-cyan-500">{xp} / {nextLevelXp} XP</span>
+          <span className="text-[10px] font-bold text-cyan-500">{xp} / {nextLevelXp} XP</span>
         </div>
         <div className="h-3 bg-accent rounded-full overflow-hidden border border-white/5">
           <div 
@@ -2190,7 +2311,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
         <button 
           onClick={claimDailyReward}
           disabled={claiming}
-          className="w-full py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-500 text-[10px] font-black uppercase tracking-widest hover:bg-yellow-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          className="w-full py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-500 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
         >
           <Coins className="w-4 h-4" />
           {claiming ? 'Olinmoqda...' : 'Kunlik mukofot (100 XP)'}
@@ -2200,8 +2321,8 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
       {/* Profile Completeness */}
       <div className="rpg-card p-5 rounded-3xl border-emerald-500/20">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Profil to'liqligi</span>
-          <span className="text-[10px] font-black text-emerald-500">{completeness}%</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Profil to'liqligi</span>
+          <span className="text-[10px] font-bold text-emerald-500">{completeness}%</span>
         </div>
         <div className="h-1.5 bg-accent rounded-full overflow-hidden">
           <div 
@@ -2214,17 +2335,17 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
       {/* Financial Skills (RPG Style) */}
       <div className="rpg-card p-6 rounded-3xl space-y-6">
         <div className="flex items-center justify-between">
-          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Moliyaviy Mahoratlar</h4>
+          <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Moliyaviy Mahoratlar</h4>
           <div className="flex items-center gap-1">
             <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
-            <span className="text-[10px] font-black text-cyan-500 uppercase">Live Stats</span>
+            <span className="text-[10px] font-bold text-cyan-500 uppercase">Live Stats</span>
           </div>
         </div>
         
         <div className="space-y-5">
           {/* Saving Skill */}
           <div className="space-y-2">
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest">
               <span className="flex items-center gap-2">
                 <Shield className="w-3 h-3 text-emerald-500" />
                 Tejamkorlik
@@ -2241,7 +2362,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
 
           {/* Discipline Skill */}
           <div className="space-y-2">
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest">
               <span className="flex items-center gap-2">
                 <Zap className="w-3 h-3 text-yellow-500" />
                 Intizom
@@ -2258,7 +2379,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
 
           {/* Strategy Skill */}
           <div className="space-y-2">
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest">
               <span className="flex items-center gap-2">
                 <Target className="w-3 h-3 text-purple-500" />
                 Strategiya
@@ -2281,14 +2402,14 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Muvaffaqiyatlar</p>
           <div className="flex items-center gap-2">
             <Award className="w-5 h-5 text-emerald-500" />
-            <span className="text-lg font-black">{achievements.filter(a => a.unlocked).length} / {achievements.length}</span>
+            <span className="text-lg font-bold">{achievements.filter(a => a.unlocked).length} / {achievements.length}</span>
           </div>
         </div>
         <div className="rpg-card p-4 rounded-2xl border-cyan-500/20">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Tranzaksiyalar</p>
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-cyan-500" />
-            <span className="text-lg font-black">{transactions.length}</span>
+            <span className="text-lg font-bold">{transactions.length}</span>
           </div>
         </div>
       </div>
@@ -2296,7 +2417,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
       {/* Achievements */}
       <div className="space-y-4">
         <div className="flex items-center justify-between px-1">
-          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Yutuqlar</h4>
+          <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Yutuqlar</h4>
           <Trophy className="w-4 h-4 text-yellow-400" />
         </div>
         <div className="grid grid-cols-1 gap-3">
@@ -2324,7 +2445,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
       {/* Quest Log (Recent Activity) */}
       <div className="space-y-4">
         <div className="flex items-center justify-between px-1">
-          <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Sarguzashtlar Tarixi</h4>
+          <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Sarguzashtlar Tarixi</h4>
           <Activity className="w-4 h-4 text-cyan-500" />
         </div>
         <div className="rpg-card p-4 rounded-3xl space-y-4">
@@ -2341,7 +2462,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
                 <p className="text-[10px] text-muted-foreground">{tx.note || 'Izohsiz'}</p>
               </div>
               <div className="text-right">
-                <p className={cn("text-xs font-black", tx.type === 'income' ? "text-emerald-500" : "text-pink-500")}>
+                <p className={cn("text-xs font-bold", tx.type === 'income' ? "text-emerald-500" : "text-pink-500")}>
                   {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount, profile?.currency)}
                 </p>
                 <p className="text-[8px] text-muted-foreground uppercase">{format(tx.date instanceof Timestamp ? tx.date.toDate() : new Date(tx.date), 'dd MMM', { locale: uz })}</p>
@@ -2349,14 +2470,14 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
             </div>
           ))}
           {transactions.length === 0 && (
-            <p className="text-center py-4 text-xs text-muted-foreground italic">Hali sarguzashtlar mavjud emas...</p>
+            <p className="text-center py-4 text-xs text-muted-foreground">Hali sarguzashtlar mavjud emas...</p>
           )}
         </div>
       </div>
 
       {/* Avatar Customization */}
       <div className="rpg-card p-6 rounded-3xl space-y-4">
-        <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Avatar rangi</h4>
+        <h4 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Avatar rangi</h4>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 py-4">
           {avatarColors.map(color => (
             <button 
@@ -2388,7 +2509,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
               <Settings className="w-5 h-5 text-cyan-500" />
             </div>
             <div>
-              <h4 className="text-sm font-black uppercase tracking-widest">Sozlamalar</h4>
+              <h4 className="text-sm font-bold uppercase tracking-widest">Sozlamalar</h4>
               <p className="text-[10px] text-muted-foreground uppercase tracking-tighter">Qahramon atributlarini tahrirlash</p>
             </div>
           </div>
@@ -2399,7 +2520,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-1 h-4 bg-cyan-500 rounded-full"></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Shaxsiy ma'lumotlar</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Shaxsiy ma'lumotlar</span>
             </div>
             
             <div className="grid grid-cols-1 gap-4">
@@ -2436,7 +2557,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Jamg'arma maqsadi</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Jamg'arma maqsadi</span>
             </div>
             
             <div className="grid grid-cols-1 gap-4">
@@ -2473,10 +2594,26 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ilova sozlamalari</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Ilova sozlamalari</span>
             </div>
 
             <div className="space-y-4">
+              <button 
+                onClick={() => setShowGlossary('balance')}
+                className="w-full flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
+                    <BookOpen className="w-5 h-5 text-cyan-500" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold">Bilimlar Kitobi</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Atamalar tarifi</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-cyan-500 transition-colors" />
+              </button>
+
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Oylik byudjet limiti</label>
                 <div className="relative group">
@@ -2552,7 +2689,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <button 
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-4 rpg-gradient rounded-2xl text-white font-bold uppercase tracking-widest shadow-[0_0_20px_rgba(168,85,247,0.2)] hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving ? (
               <>
@@ -2570,14 +2707,14 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
           <div className="grid grid-cols-2 gap-3">
             <button 
               onClick={exportData}
-              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
+              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
             >
               <Download className="w-4 h-4 text-cyan-500" />
               Eksport
             </button>
             <button 
               onClick={() => alert('Parolni o\'zgartirish... (Tez orada)')}
-              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
+              className="py-3.5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 hover:border-white/20 transition-all flex items-center justify-center gap-2"
             >
               <Lock className="w-4 h-4 text-purple-500" />
               Xavfsizlik
@@ -2586,7 +2723,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
 
           <button 
             onClick={() => signOut(auth)}
-            className="w-full py-4 bg-red-500/5 border border-red-500/20 rounded-2xl text-red-500 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/10 hover:border-red-500/40 transition-all flex items-center justify-center gap-2"
+            className="w-full py-4 bg-red-500/5 border border-red-500/20 rounded-2xl text-red-500 text-[10px] font-bold uppercase tracking-widest hover:bg-red-500/10 hover:border-red-500/40 transition-all flex items-center justify-center gap-2"
           >
             <LogOut className="w-4 h-4" />
             Tizimdan chiqish
@@ -2597,7 +2734,7 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
       {/* Social Links */}
       <div className="rpg-card p-6 rounded-3xl space-y-4 bg-gradient-to-b from-transparent to-cyan-500/5">
         <div className="flex items-center justify-between">
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Hamjamiyat</h4>
+          <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hamjamiyat</h4>
           <div className="flex gap-2">
             <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
             <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse delay-75"></div>
@@ -2606,15 +2743,15 @@ function ProfilePage({ profile, user, transactions, setNotifications }: { profil
         <div className="grid grid-cols-3 gap-3">
           <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-cyan-500/10 hover:text-cyan-500 transition-all border border-white/5">
             <Mail className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Email</span>
+            <span className="text-[8px] font-bold uppercase">Email</span>
           </button>
           <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-purple-500/10 hover:text-purple-500 transition-all border border-white/5">
             <Share2 className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Ulashish</span>
+            <span className="text-[8px] font-bold uppercase">Ulashish</span>
           </button>
           <button className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-2xl hover:bg-emerald-500/10 hover:text-emerald-500 transition-all border border-white/5">
             <Shield className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Yordam</span>
+            <span className="text-[8px] font-bold uppercase">Yordam</span>
           </button>
         </div>
       </div>
@@ -2667,10 +2804,10 @@ function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid
     }
   };
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const handleDelete = async () => {
     if (!editData) return;
-    if (!window.confirm('Haqiqatdan ham ushbu tranzaksiyani o\'chirmoqchimisiz?')) return;
-    
     setDeleting(true);
     try {
       await deleteDoc(doc(db, 'transactions', editData.id));
@@ -2679,14 +2816,46 @@ function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid
       console.error(err);
     } finally {
       setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
   return (
     <div className="absolute inset-0 z-[100] flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="w-full bg-background border border-border rounded-t-[32px] p-8 shadow-2xl animate-in slide-in-from-bottom-full duration-500 max-h-[90vh] overflow-y-auto custom-scrollbar">
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 z-[110] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in zoom-in-95 duration-200">
+          <div className="rpg-card p-8 rounded-3xl border-red-500/50 max-w-xs w-full text-center space-y-6">
+            <div className="w-16 h-16 bg-red-500/20 rounded-2xl mx-auto flex items-center justify-center">
+              <Trash2 className="w-8 h-8 text-red-500" />
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-xl font-bold">O'chirishni tasdiqlaysizmi?</h4>
+              <p className="text-xs text-muted-foreground">Ushbu amalni ortga qaytarib bo'lmaydi.</p>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl font-bold hover:bg-white/10 transition-all"
+              >
+                Bekor qilish
+              </button>
+              <button 
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 rounded-xl font-bold text-white shadow-lg shadow-red-500/20 transition-all disabled:opacity-50"
+              >
+                {deleting ? 'O\'chirilmoqda...' : 'O\'chirish'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div 
+        className="w-full bg-background border border-border rounded-t-[32px] p-8 shadow-2xl animate-in slide-in-from-bottom-full duration-500 max-h-[90vh] overflow-y-auto custom-scrollbar"
+        style={{ paddingBottom: 'calc(2rem + var(--sab, 0px))' }}
+      >
         <div className="flex items-center justify-between mb-8">
-          <h3 className="text-2xl font-black italic">{editData ? 'Tahrirlash' : 'Tranzaksiya qo\'shish'}</h3>
+          <h3 className="text-2xl font-bold">{editData ? 'Tahrirlash' : 'Tranzaksiya qo\'shish'}</h3>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-full transition-colors">
             <X className="w-6 h-6" />
           </button>
@@ -2724,7 +2893,7 @@ function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid
                 type="number" 
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-accent/50 border border-border rounded-xl px-4 py-4 text-2xl font-black focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
+                className="w-full bg-accent/50 border border-border rounded-xl px-4 py-4 text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
                 placeholder="0.00"
                 required
               />
@@ -2789,7 +2958,7 @@ function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid
             <button 
               type="submit"
               disabled={loading || deleting}
-              className="w-full py-4 rpg-gradient rounded-2xl text-white font-black uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+              className="w-full py-4 rpg-gradient rounded-2xl text-white font-bold uppercase tracking-widest shadow-xl shadow-purple-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
             >
               {loading ? 'Saqlanmoqda...' : editData ? 'O\'zgarishlarni saqlash' : 'Tranzaksiya qo\'shish'}
             </button>
@@ -2797,12 +2966,12 @@ function TransactionModal({ onClose, uid, editData }: { onClose: () => void, uid
             {editData && (
               <button 
                 type="button"
-                onClick={handleDelete}
+                onClick={() => setShowDeleteConfirm(true)}
                 disabled={loading || deleting}
-                className="w-full py-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 font-black uppercase tracking-widest hover:bg-red-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 font-bold uppercase tracking-widest hover:bg-red-500/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
-                {deleting ? 'O\'chirilmoqda...' : 'Tranzaksiyani o\'chirish'}
+                Tranzaksiyani o'chirish
               </button>
             )}
           </div>
@@ -2825,19 +2994,19 @@ function NotificationsPage({ notifications, setNotifications }: { notifications:
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black italic uppercase tracking-tighter">Xabarlar</h2>
+          <h2 className="text-2xl font-bold uppercase tracking-tighter">Xabarlar</h2>
           <p className="text-muted-foreground text-sm">Tizim xabarlari va eslatmalar.</p>
         </div>
         <div className="flex gap-4">
           <button 
             onClick={markAllAsRead} 
-            className="text-[10px] font-black uppercase tracking-widest text-cyan-500 hover:text-cyan-400 transition-colors"
+            className="text-[10px] font-bold uppercase tracking-widest text-cyan-500 hover:text-cyan-400 transition-colors"
           >
             Hammasini o'qish
           </button>
           <button 
             onClick={clearAll} 
-            className="text-[10px] font-black uppercase tracking-widest text-pink-500 hover:text-pink-400 transition-colors"
+            className="text-[10px] font-bold uppercase tracking-widest text-pink-500 hover:text-pink-400 transition-colors"
           >
             Tozalash
           </button>
@@ -2863,7 +3032,7 @@ function NotificationsPage({ notifications, setNotifications }: { notifications:
             <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-muted-foreground opacity-20" />
             </div>
-            <p className="text-muted-foreground italic text-sm">Yangi xabarlar yo'q.</p>
+            <p className="text-muted-foreground text-sm">Yangi xabarlar yo'q.</p>
           </div>
         )}
       </div>

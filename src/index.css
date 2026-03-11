@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -72,14 +73,26 @@
   }
 
   html, body {
-    @apply overflow-hidden h-full w-full fixed inset-0 touch-pan-y;
+    @apply overflow-hidden h-full w-full fixed inset-0 touch-pan-y bg-[#09090b];
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
     user-select: none;
+    /* Safe area padding variables */
+    --sat: env(safe-area-inset-top);
+    --sar: env(safe-area-inset-right);
+    --sab: env(safe-area-inset-bottom);
+    --sal: env(safe-area-inset-left);
+  }
+
+  /* Ensure smooth scrolling on iOS */
+  .scroll-container {
+    -webkit-overflow-scrolling: touch;
+    @apply overflow-y-auto h-full;
   }
 
   input, textarea, select {
     user-select: text;
+    font-size: 16px !important; /* Prevents iOS auto-zoom */
   }
 
   select option {
@@ -112,6 +125,9 @@
     background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .rpg-card-hover {
+    @apply transition-all duration-200 hover:bg-white/10 active:scale-[0.98];
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
